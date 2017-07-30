@@ -191,9 +191,14 @@ struct MessageHeader: CustomStringConvertible {
         return "type: \(type), size \(size)"
     }
     
-    init?(data: Data) {
-        size = data.toValueType()
-        guard let mt = MessageType(rawValue: Character(UnicodeScalar(data[2]) ) ) else { return nil }
+    init?(ptr: UnsafeRawPointer) {
+        size = ptr.assumingMemoryBound(to: UInt16.self).pointee //        size = ptr.load(as: UInt16.self) works the first time, but not the second !
+
+        guard let mt = MessageType(rawValue: Character(UnicodeScalar( ptr.load(fromByteOffset: 2, as: UInt8.self) ) ) ) else {
+            let number = ptr.load(fromByteOffset: 2, as: UInt8.self)
+            print( Character(UnicodeScalar( number ) ) )
+            return nil
+        }
         type = mt
     }
 }
@@ -386,87 +391,95 @@ class ULog {
     
     func readFileDefinitions(data: Data) -> Void {
         
-        var data = data
-        
         var iteration = 0
-        let iterationMax = 2000
-        while (iteration < iterationMax) {
-            iteration += 1
+        let iterationMax = 50000
+        
+        let startTime = Date()
+        
+        data.withUnsafeBytes { (u8Ptr: UnsafePointer<UInt8>) in
+            var ptr = UnsafeMutableRawPointer(mutating: u8Ptr)
             
-            if ( iteration % (iterationMax/100) == 0) { print( "complete\(Int(100*iteration/iterationMax))" ) }
-
-            guard let messageHeader = MessageHeader( data: data.subdata(in: 0..<3) ) else { return }
-            data = data.advanced(by: 3)
-            
-            switch messageHeader.type {
-            case .Info:
-                guard let message = MessageInfo(data: data, header: messageHeader) else { return }
-                infos.append(message)
-                break
-            case .Format:
-                guard let message = MessageFormat(data: data, header: messageHeader) else { return }
-                messageFormats.append(message)
+            while (iteration < iterationMax) {
+                iteration += 1
+                let newTime = Date()
                 
-                let name = message.messageName
+                if ( iteration % (iterationMax/100) == 0) { print( "complete\(Int(100*iteration/iterationMax)) time: \(newTime.timeIntervalSince(startTime))" ) }
                 
-                var types = [UlogType]()
-                var lookup = Dictionary<String, Int>()
+                guard let messageHeader = MessageHeader(ptr: ptr ) else {
+                    return // complete when the header is nil
+                }
+                ptr += 3
                 
-                message.formatsProcessed.enumerated().forEach({ (offset, element) in
-                    lookup[element.0] = offset
-                    types.append(element.1)
-                })
-                
-                let f = Format(name: name, lookup: lookup, types: types)
-                
-                formats[name] = f
-                
-                break
-            case .Parameter:
-                let message = MessageParameter(data: data, header: messageHeader)
-                parameters.append(message)
-            case .AddLoggedMessage:
-                let message = MessageAddLoggedMessage(data: data, header: messageHeader)
-                addLoggedMessages.append(message)
-                
-                formatsByLoggedId.insert(formats[message.messageName]!, at: Int(message.id))
-                break
-            
-            case .Data:
-                let message = MessageData(data: data, header: messageHeader)
-                
-                var index = 0
-                let format = formatsByLoggedId[Int(message.id)]
-                var content = [UlogValue]()
-                
-                for type in format.types {
-                    content.append( UlogValue(type: type, value: message.data.advanced(by: index) )! )
-                    index += type.byteCount
+                switch messageHeader.type {
+                case .Info:
+                    guard let message = MessageInfo(data: Data(bytes: ptr, count: Int(messageHeader.size)) , header: messageHeader) else { return }
+                    infos.append(message)
+                    break
+                case .Format:
+                    guard let message = MessageFormat(data: Data(bytes: ptr, count: Int(messageHeader.size)), header: messageHeader) else { return }
+                    messageFormats.append(message)
+                    
+                    let name = message.messageName
+                    
+                    var types = [UlogType]()
+                    var lookup = Dictionary<String, Int>()
+                    
+                    message.formatsProcessed.enumerated().forEach({ (offset, element) in
+                        lookup[element.0] = offset
+                        types.append(element.1)
+                    })
+                    
+                    let f = Format(name: name, lookup: lookup, types: types)
+                    
+                    formats[name] = f
+                    
+                    break
+                case .Parameter:
+                    let message = MessageParameter(data: Data(bytes: ptr, count: Int(messageHeader.size)), header: messageHeader)
+                    parameters.append(message)
+                case .AddLoggedMessage:
+                    let message = MessageAddLoggedMessage(data: Data(bytes: ptr, count: Int(messageHeader.size)), header: messageHeader)
+                    addLoggedMessages.append(message)
+                    
+                    formatsByLoggedId.insert(formats[message.messageName]!, at: Int(message.id))
+                    break
+                    
+                case .Data:
+                    let message = MessageData(data: Data(bytes: ptr, count: Int(messageHeader.size)), header: messageHeader)
+                    
+                    var index = 0
+                    let format = formatsByLoggedId[Int(message.id)]
+                    var content = [UlogValue]()
+                    
+                    for type in format.types {
+                        content.append( UlogValue(type: type, value: message.data.advanced(by: index) )! )
+                        index += type.byteCount
+                    }
+                    
+                    if (self.data[format.name] == nil) {
+                        self.data[format.name] = [[UlogValue]]()
+                    }
+                    
+                    self.data[format.name]!.append(content)
+                    break
+                    
+                case .Logging:
+                    let message = MessageLog(data: Data(bytes: ptr, count: Int(messageHeader.size)), header: messageHeader)
+                    print(message.message)
+                    break
+                    
+                case .Dropout:
+                    let message = MessageDropout(data: Data(bytes: ptr, count: Int(messageHeader.size)), header: messageHeader)
+                    print("dropout \(message.duration) ms")
+                    break
+                    
+                default:
+                    print(messageHeader.type)
+                    return
                 }
                 
-                if (self.data[format.name] == nil) {
-                    self.data[format.name] = [[UlogValue]]()
-                }
-                
-                self.data[format.name]!.append(content)
-                break
-                
-            case .Logging:
-                let message = MessageLog(data: data, header: messageHeader)
-                print(message.message)
-                break
-                
-            case .Dropout:
-                let message = MessageDropout(data: data, header: messageHeader)
-                print("dropout \(message.duration) ms")
-                break
-                
-            default:
-                print(messageHeader.type)
-                return
+                ptr += Int(messageHeader.size)
             }
-            
-            data = data.advanced(by: Int(messageHeader.size ))
         }
     }
 }
