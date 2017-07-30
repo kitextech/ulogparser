@@ -113,7 +113,7 @@ enum UlogType {
         case .double: return 8
         case .bool: return 1
         case .string: return 0 // Should not be ussed
-        case .array: return 0 // Should not be ussed
+        case .array(let array): return array.reduce(0) { $0 + $1.byteCount } // Should not be ussed
         }
     }
 }
@@ -154,7 +154,7 @@ enum UlogValue: CustomStringConvertible {
         case .array(let array):
             
             self = .array( array.enumerated().map { (offset, type) in
-                    return value.advanced(by: offset * type.byteCount).toValueType()
+                return UlogValue(type: type, value: value.advanced(by: offset * type.byteCount))!
                 }
             )
         }
@@ -224,7 +224,7 @@ struct MessageParameter {
     let key: String
     let value: UlogValue
     
-    init?(data: Data, header: MessageHeader) {
+    init(data: Data, header: MessageHeader) {
         self.header = header
         keyLength = data.toValueType()
         let typeAndName = data.subdata(in: 1..<(1+Int(keyLength))).toString()
@@ -258,6 +258,7 @@ struct MessageFormat {
             .components(separatedBy: ";")
             .filter { $0.characters.count > 0 }
             .map { split(s: $0) }
+            .filter { $0.0 != "_padding0" }
     }
     
     func split(s: String) -> (String, UlogType) {
@@ -276,7 +277,7 @@ struct MessageAddLoggedMessage {
     let id: UInt16
     let messageName: String
     
-    init?(data: Data, header: MessageHeader) {
+    init(data: Data, header: MessageHeader) {
         self.header = header
         multi_id = data[0]
         id = data.advanced(by: 1).toValueType()
@@ -284,16 +285,54 @@ struct MessageAddLoggedMessage {
     }
 }
 
+struct MessageData {
+    let header: MessageHeader
+    let id: UInt16
+    let data: Data
+    
+    init(data: Data, header: MessageHeader) {
+        self.header = header
+        id = data.toValueType()
+        self.data = data.advanced(by: 2)
+    }
+}
+
+struct MessageLog {
+    let header: MessageHeader
+    let level: UInt8
+    let timestamp: UInt64
+    let message: String
+    
+    init(data: Data, header: MessageHeader) {
+        self.header = header
+        level = data[0]
+        timestamp = data.advanced(by: 1).toValueType()
+        message = data.subdata(in: 7..<Int(header.size) ).toString()
+    }
+}
+
+struct MessageDropout {
+    let header: MessageHeader
+    let duration: UInt16
+    
+    init(data: Data, header: MessageHeader) {
+        self.header = header
+        duration = data.toValueType()
+    }
+    
+};
+
 // HELPER structures
 
 struct Format {
-    var lookup = Dictionary<String, Int>()
-    var content = [UlogType]()
+    let name: String
+    let lookup: Dictionary<String, Int>
+    let types: [UlogType]
 }
 
 class ULog {
     
-    let data: Data
+//    let data: Data
     
     var infos = [MessageInfo]()
     var messageFormats = [MessageFormat]()
@@ -302,9 +341,10 @@ class ULog {
     var parameters = [MessageParameter]()
     var addLoggedMessages = [MessageAddLoggedMessage]()
     
+    var data = Dictionary<String, [[UlogValue]]>()
+    
+    
     init?(data: Data) {
-        self.data = data
-        
         if !checkMagicHeader(data: data) {
             print("bad header magic")
             return nil
@@ -315,42 +355,9 @@ class ULog {
             return nil
         }
         
-//        data.subdata(in: 0..<100).enumerated().forEach { (i, val) in print("\(i): \(val),  \(UnicodeScalar(val))") }
-        
         print(getLoggingStartMicros(data: data))
         
         readFileDefinitions(data: data.subdata(in: 16..<data.endIndex))
-        
-//        print("--------")
-//        infos.forEach { print($0) }
-//        print("--------")
-////        messageFormats.forEach {
-//            print("-xxxxxxx-")
-//            print($0.messageName)
-//            print($0)
-//            print($0.formatsProcessed)
-//        }
-//        print("--------")
-//        parameters.forEach { print($0) }
-        
-//        print("_-_-_-_-_-_-_")
-//        
-//        print(formats)
-        
-//        print("--------")
-//        addLoggedMessages.forEach { print($0) }
-        
-//        print("_-_-_-_-_-_-_")
-//        
-//        print(formatsByLoggedId)
-//        
-        
-        
-        
-        
-        
-        
-        
     }
     
     func checkMagicHeader(data: Data) -> Bool {
@@ -381,7 +388,10 @@ class ULog {
         
         var data = data
         
-        while (true) {
+        var iteration = 0
+        while (iteration < 100000) {
+            iteration += 1
+
             guard let messageHeader = MessageHeader( data: data.subdata(in: 0..<3) ) else { return }
             data = data.advanced(by: 3)
             
@@ -396,29 +406,58 @@ class ULog {
                 
                 let name = message.messageName
                 
-                var content = [UlogType]()
+                var types = [UlogType]()
                 var lookup = Dictionary<String, Int>()
                 
                 message.formatsProcessed.enumerated().forEach({ (offset, element) in
                     lookup[element.0] = offset
-                    content.append(element.1)
+                    types.append(element.1)
                 })
                 
-                let f = Format(lookup: lookup, content: content)
+                let f = Format(name: name, lookup: lookup, types: types)
                 
                 formats[name] = f
                 
                 break
             case .Parameter:
-                guard let message = MessageParameter(data: data, header: messageHeader) else { return }
+                let message = MessageParameter(data: data, header: messageHeader)
                 parameters.append(message)
             case .AddLoggedMessage:
-                guard let message = MessageAddLoggedMessage(data: data, header: messageHeader) else { return }
+                let message = MessageAddLoggedMessage(data: data, header: messageHeader)
                 addLoggedMessages.append(message)
                 
                 formatsByLoggedId.insert(formats[message.messageName]!, at: Int(message.id))
                 break
             
+            case .Data:
+                let message = MessageData(data: data, header: messageHeader)
+                
+                var index = 0
+                let format = formatsByLoggedId[Int(message.id)]
+                var content = [UlogValue]()
+                
+                for type in format.types {
+                    content.append( UlogValue(type: type, value: message.data.advanced(by: index) )! )
+                    index += type.byteCount
+                }
+                
+                if (self.data[format.name] == nil) {
+                    self.data[format.name] = [[UlogValue]]()
+                }
+                
+                self.data[format.name]!.append(content)
+                break
+                
+            case .Logging:
+                let message = MessageLog(data: data, header: messageHeader)
+                print(message.message)
+                break
+                
+            case .Dropout:
+                let message = MessageDropout(data: data, header: messageHeader)
+                print("dropout \(message.duration) ms")
+                break
+                
             default:
                 print(messageHeader.type)
                 return
@@ -449,6 +488,33 @@ class ViewController: NSViewController {
             print("error")
             return
         }
+        
+        
+        //        print("--------")
+        //        infos.forEach { print($0) }
+        //        print("--------")
+        ////        messageFormats.forEach {
+        //            print("-xxxxxxx-")
+        //            print($0.messageName)
+        //            print($0)
+        //            print($0.formatsProcessed)
+        //        }
+        //        print("--------")
+        //        parameters.forEach { print($0) }
+        
+        //        print("_-_-_-_-_-_-_")
+        //
+        //        print(formats)
+        
+        //        print("--------")
+        //        addLoggedMessages.forEach { print($0) }
+        
+        //        print("_-_-_-_-_-_-_")
+        //        
+        //        print(formatsByLoggedId)
+        //        
+        
+        
         
         print(ulog.data.count)
         
