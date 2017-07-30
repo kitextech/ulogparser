@@ -389,8 +389,11 @@ class ULog {
         var data = data
         
         var iteration = 0
-        while (iteration < 100000) {
+        let iterationMax = 2000
+        while (iteration < iterationMax) {
             iteration += 1
+            
+            if ( iteration % (iterationMax/100) == 0) { print( "complete\(Int(100*iteration/iterationMax))" ) }
 
             guard let messageHeader = MessageHeader( data: data.subdata(in: 0..<3) ) else { return }
             data = data.advanced(by: 3)
@@ -514,9 +517,24 @@ class ViewController: NSViewController {
         //        print(formatsByLoggedId)
         //        
         
+        // print format
         
+//        print(sen)
+//        name	String	"sensor_combined"
+//        key	String	"timestamp"
+//        key	String	"accelerometer_m_s2"
         
-        print(ulog.data.count)
+        let messageName = "sensor_combined"
+        let variableKey = "accelerometer_m_s2"
+        
+        let f = ulog.formats[messageName]!
+        let sensorCombinedData = ulog.data[messageName]!
+        
+        let variableIndex = f.lookup[variableKey]!
+        
+        let variableArray = sensorCombinedData.map { $0[variableIndex] }
+        
+        print(variableArray)
         
     }
 
