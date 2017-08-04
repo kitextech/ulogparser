@@ -396,8 +396,13 @@ class ULog {
         
         let startTime = Date()
         
+        let numberOfBytes = data.count
+        
+        
         data.withUnsafeBytes { (u8Ptr: UnsafePointer<UInt8>) in
             var ptr = UnsafeMutableRawPointer(mutating: u8Ptr)
+            let initialPointer = ptr
+            
             
             while (iteration < iterationMax) {
                 iteration += 1
@@ -410,13 +415,17 @@ class ULog {
                 }
                 ptr += 3
                 
+                if (ptr-initialPointer + Int(messageHeader.size) > numberOfBytes) { return }
+                let data = Data(bytes: ptr, count: Int(messageHeader.size))
+                
+                
                 switch messageHeader.type {
                 case .Info:
-                    guard let message = MessageInfo(data: Data(bytes: ptr, count: Int(messageHeader.size)) , header: messageHeader) else { return }
+                    guard let message = MessageInfo(data: data, header: messageHeader) else { return }
                     infos.append(message)
                     break
                 case .Format:
-                    guard let message = MessageFormat(data: Data(bytes: ptr, count: Int(messageHeader.size)), header: messageHeader) else { return }
+                    guard let message = MessageFormat(data: data, header: messageHeader) else { return }
                     messageFormats.append(message)
                     
                     let name = message.messageName
@@ -435,17 +444,17 @@ class ULog {
                     
                     break
                 case .Parameter:
-                    let message = MessageParameter(data: Data(bytes: ptr, count: Int(messageHeader.size)), header: messageHeader)
+                    let message = MessageParameter(data: data, header: messageHeader)
                     parameters.append(message)
                 case .AddLoggedMessage:
-                    let message = MessageAddLoggedMessage(data: Data(bytes: ptr, count: Int(messageHeader.size)), header: messageHeader)
+                    let message = MessageAddLoggedMessage(data: data, header: messageHeader)
                     addLoggedMessages.append(message)
                     
                     formatsByLoggedId.insert(formats[message.messageName]!, at: Int(message.id))
                     break
                     
                 case .Data:
-                    let message = MessageData(data: Data(bytes: ptr, count: Int(messageHeader.size)), header: messageHeader)
+                    let message = MessageData(data: data, header: messageHeader)
                     
                     var index = 0
                     let format = formatsByLoggedId[Int(message.id)]
@@ -464,12 +473,12 @@ class ULog {
                     break
                     
                 case .Logging:
-                    let message = MessageLog(data: Data(bytes: ptr, count: Int(messageHeader.size)), header: messageHeader)
+                    let message = MessageLog(data: data, header: messageHeader)
                     print(message.message)
                     break
                     
                 case .Dropout:
-                    let message = MessageDropout(data: Data(bytes: ptr, count: Int(messageHeader.size)), header: messageHeader)
+                    let message = MessageDropout(data: data, header: messageHeader)
                     print("dropout \(message.duration) ms")
                     break
                     
@@ -491,7 +500,8 @@ class ViewController: NSViewController {
 
         // Do any additional setup after loading the view.
         
-        let path = "~/Dropbox/KiteX/PrototypeDesign/10_32_17.ulg"
+//        let path = "~/Dropbox/KiteX/PrototypeDesign/10_32_17.ulg"
+        let path = "/Users/aokholm/src/kitex/PX4/Firmware/build_posix_sitl_default_replay/tmp/rootfs/fs/microsd/log/2017-08-04/15_19_22_replayed.ulg"
         
         let location = NSString(string: path).expandingTildeInPath
         
@@ -537,8 +547,15 @@ class ViewController: NSViewController {
 //        key	String	"timestamp"
 //        key	String	"accelerometer_m_s2"
         
-        let messageName = "sensor_combined"
-        let variableKey = "accelerometer_m_s2"
+//        let messageName = "sensor_combined"
+//        let variableKey = "accelerometer_m_s2"
+
+//        let messageName = "vehicle_local_position"
+//        let variableKey = "timestamp"
+        
+        
+        let messageName = "fw_turning"
+        let variableKey = "arc_radius"
         
         let f = ulog.formats[messageName]!
         let sensorCombinedData = ulog.data[messageName]!
