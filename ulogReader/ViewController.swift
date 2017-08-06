@@ -44,57 +44,6 @@ enum MessageType: Character {
 
 // Ulog Datatypes
 
-struct UlogFormat {
-    let name: String
-    let properties: [String : UlogType]
-}
-
-enum UlogType {
-    case uint8
-    case int8
-    case uint16
-    case int16
-    case uint32
-    case int32
-    case uint64
-    case int64
-    case float
-    case double
-    case bool
-    case char
-
-    case uint8s(n: Int)
-    case int8s(n: Int)
-    case uint16s(n: Int)
-    case int16s(n: Int)
-    case uint32s(n: Int)
-    case int32s(n: Int)
-    case uint64s(n: Int)
-    case int64s(n: Int)
-    case floats(n: Int)
-    case doubles(n: Int)
-    case bools(n: Int)
-    case chars(n: Int)
-
-    init?(typeName: String) {
-        print("TypeName:\(typeName)")
-        switch typeName {
-        case "int8_t": self = .int8
-        case "uint8_t": self = .uint8
-        case "int16_t": self = .int16
-        case "uint16_t": self = .uint16
-        case "int32_t": self = .int32
-        case "uint32_t": self = .uint32
-        case "int64_t": self = .int64
-        case "uint64_t": self = .uint64
-        case "float": self = .float
-        case "double": self = .double
-        case "bool": self = .bool
-        case "char": self = .char
-
-        default:
-
-            fatalError()
 //            let regExp: NSRegularExpression = ""
 
 //            if typeName.contains("[") {
@@ -121,86 +70,118 @@ enum UlogType {
 //                return nil
 //            }
             //        }
-        }
-    }
-    var byteCount: Int {
-        switch self {
-        case .int8: return 1
-        case .uint8: return 1
-        case .int16: return 2
-        case .uint16: return 2
-        case .int32: return 4
-        case .uint32: return 4
-        case .int64: return 8
-        case .uint64: return 8
-        case .float: return 4
-        case .double: return 8
-        case .bool: return 1
-        default: return 0
 
+protocol ULogType {}
 
-            //        case .string: return 0 // Should not be ussed
-            //        case .array(let array): return array.reduce(0) { $0 + $1.byteCount } // Should not be ussed
-        }
+struct UlogFormat: ULogType {
+    let name: String
+    let properties: [String : ULogType]
+}
+
+enum UlogPrimitive: String, ULogType {
+    case uint8 = "uint8_t"
+    case uint16 = "uint16_t"
+    case uint32 = "uint32_t"
+    case uint64 = "uint64_t"
+    case int8 = "int8_t"
+    case int16 = "int16_t"
+    case int32 = "int32_t"
+    case int64 = "int64_t"
+    case float = "float_t"
+    case double = "double_t"
+    case bool = "bool_t"
+    case char = "char_t"
+
+    case uint8s = "uint8_t[]"
+    case uint16s = "uint16_t[]"
+    case uint32s = "uint32_t[]"
+    case uint64s = "uint64_t[]"
+    case int8s = "int8_t[]"
+    case int16s = "int16_t[]"
+    case int32s = "int32_t[]"
+    case int64s = "int64_t[]"
+    case floats = "float_t[]"
+    case doubles = "double_t[]"
+    case bools = "bool_t[]"
+    case chars = "char_t[]"
+
+    init?(typeName: String) {
+
     }
+
+    
+
+        //        print("TypeName:\(typeName)")
+//        switch typeName {
+//        case "int8_t": self = .int8
+//        case "uint8_t": self = .uint8
+//        case "int16_t": self = .int16
+//        case "uint16_t": self = .uint16
+//        case "int32_t": self = .int32
+//        case "uint32_t": self = .uint32
+//        case "int64_t": self = .int64
+//        case "uint64_t": self = .uint64
+//        case "float": self = .float
+//        case "double": self = .double
+//        case "bool": self = .bool
+//        case "char": self = .char
+//
+//        default:
+//
+//        }
+//    }
 }
 
 enum UlogValue {
-    case uint8([[UInt8]])
-    case int8([[Int8]])
-    case uint16([[UInt16]])
-    case int16([[Int16]])
-    case uint32([[UInt32]])
-    case int32([[Int32]])
-    case uint64([[UInt64]])
-    case int64([[Int64]])
-    case float([[Float]])
-    case double([[Double]])
-    case bool([[Bool]])
-    case char([String])
-    case custom([UlogFormat])
+    case uint8(UInt8)
+    case int8(Int8)
+    case uint16(UInt16)
+    case int16(Int16)
+    case uint32(UInt32)
+    case int32(Int32)
+    case uint64(UInt64)
+    case int64(Int64)
+    case float(Float)
+    case double(Double)
+    case bool(Bool)
+    case char(Character)
+    case custom(UlogFormat)
 
-    init?(typeName: String) {
-        print("TypeName:\(typeName)")
-        switch typeName {
-        case "int8_t": self = .int8
-        case "uint8_t": self = .uint8
-        case "int16_t": self = .int16
-        case "uint16_t": self = .uint16
-        case "int32_t": self = .int32
-        case "uint32_t": self = .uint32
-        case "int64_t": self = .int64
-        case "uint64_t": self = .uint64
-        case "float": self = .float
-        case "double": self = .double
-        case "bool": self = .bool
-        case "char": self = .char
+    case uint8s([UInt8])
+    case int8s([Int8])
+    case uint16s([UInt16])
+    case int16s([Int16])
+    case uint32s([UInt32])
+    case int32s([Int32])
+    case uint64s([UInt64])
+    case int64s([Int64])
+    case floats([Float])
+    case doubles([Double])
+    case bools([Bool])
+    case chars(String)
+    case customs([UlogFormat])
+}
 
-        default:
-
-        }
-
-        var byteCount: Int {
-            switch self {
-            case .int8: return 1
-            case .uint8: return 1
-            case .int16: return 2
-            case .uint16: return 2
-            case .int32: return 4
-            case .uint32: return 4
-            case .int64: return 8
-            case .uint64: return 8
-            case .float: return 4
-            case .double: return 8
-            case .bool: return 1
-            default: return 0
-
-
-                //        case .string: return 0 // Should not be ussed
-                //        case .array(let array): return array.reduce(0) { $0 + $1.byteCount } // Should not be ussed
-            }
-        }
-    }
+//    init?(typeName: String) {
+//        print("TypeName:\(typeName)")
+//        switch typeName {
+//        case "int8_t": self = .int8
+//        case "uint8_t": self = .uint8
+//        case "int16_t": self = .int16
+//        case "uint16_t": self = .uint16
+//        case "int32_t": self = .int32
+//        case "uint32_t": self = .uint32
+//        case "int64_t": self = .int64
+//        case "uint64_t": self = .uint64
+//        case "float": self = .float
+//        case "double": self = .double
+//        case "bool": self = .bool
+//        case "char": self = .char
+//
+//        default:
+//
+//        }
+//    }
 
 
     //
