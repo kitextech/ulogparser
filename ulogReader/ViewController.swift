@@ -353,8 +353,13 @@ class ULog {
         
         let startTime = Date()
         
+        let numberOfBytes = data.count
+        
+        
         data.withUnsafeBytes { (u8Ptr: UnsafePointer<UInt8>) in
             var ptr = UnsafeMutableRawPointer(mutating: u8Ptr)
+            let initialPointer = ptr
+            
             
             while iteration < iterationMax {
                 iteration += 1
@@ -368,6 +373,10 @@ class ULog {
                     return // complete when the header is nil
                 }
                 ptr += 3
+                
+                if (ptr-initialPointer + Int(messageHeader.size) > numberOfBytes) { return }
+                let data = Data(bytes: ptr, count: Int(messageHeader.size))
+                
                 
                 switch messageHeader.type {
                 case .info:
@@ -495,8 +504,15 @@ class ViewController: NSViewController {
 //        key	String	"timestamp"
 //        key	String	"accelerometer_m_s2"
         
-        let messageName = "sensor_combined"
-        let variableKey = "accelerometer_m_s2"
+//        let messageName = "sensor_combined"
+//        let variableKey = "accelerometer_m_s2"
+
+//        let messageName = "vehicle_local_position"
+//        let variableKey = "timestamp"
+        
+        
+        let messageName = "fw_turning"
+        let variableKey = "arc_radius"
         
         let f = ulog.formats[messageName]!
         let sensorCombinedData = ulog.data[messageName]!
