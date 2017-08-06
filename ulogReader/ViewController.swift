@@ -63,18 +63,18 @@ enum UlogType {
     case bool
     case char
 
-    case uint8s
-    case int8s
-    case uint16s
-    case int16s
-    case uint32s
-    case int32s
-    case uint64s
-    case int64s
-    case floats
-    case doubles
-    case bools
-    case chars
+    case uint8s(n: Int)
+    case int8s(n: Int)
+    case uint16s(n: Int)
+    case int16s(n: Int)
+    case uint32s(n: Int)
+    case int32s(n: Int)
+    case uint64s(n: Int)
+    case int64s(n: Int)
+    case floats(n: Int)
+    case doubles(n: Int)
+    case bools(n: Int)
+    case chars(n: Int)
 
     init?(typeName: String) {
         print("TypeName:\(typeName)")
@@ -94,34 +94,35 @@ enum UlogType {
 
         default:
 
-            let regExp: NSRegularExpression = ""
+            fatalError()
+//            let regExp: NSRegularExpression = ""
 
-            if typeName.contains("[") {
-                if typeName.contains("char") {
-                    self = .string
-                }
-                else {
-                    let g = typeName.range(of: "[")
-                    let gg = g!.lowerBound
-                    let ggg = typeName.substring(to: gg)
-                    let type = UlogType(typeName: ggg)!
-
-                    //                    let type = UlogType(typeName: typeName.substring(to: typeName.range(of: "[")!.lowerBound))!
-
-                    let x = typeName.range(of: "[")!.upperBound
-                    let y = typeName.range(of: "]")!.lowerBound
-
-                    let count = Int(typeName.substring(with: x..<y))!
-
-                    self = .array(Array(repeatElement(type, count: count)))
-                }
-            }
-            else {
-                return nil
-            }
+//            if typeName.contains("[") {
+//                if typeName.contains("char") {
+//                    self = .string
+//                }
+//                else {
+//                    let g = typeName.range(of: "[")
+//                    let gg = g!.lowerBound
+//                    let ggg = typeName.substring(to: gg)
+//                    let type = UlogType(typeName: ggg)!
+//
+//                    //                    let type = UlogType(typeName: typeName.substring(to: typeName.range(of: "[")!.lowerBound))!
+//
+//                    let x = typeName.range(of: "[")!.upperBound
+//                    let y = typeName.range(of: "]")!.lowerBound
+//
+//                    let count = Int(typeName.substring(with: x..<y))!
+//
+//                    self = .array(Array(repeatElement(type, count: count)))
+//                }
+//            }
+//            else {
+//                return nil
+//            }
+            //        }
         }
     }
-
     var byteCount: Int {
         switch self {
         case .int8: return 1
@@ -135,15 +136,75 @@ enum UlogType {
         case .float: return 4
         case .double: return 8
         case .bool: return 1
-        case .string: return 0 // Should not be ussed
-        case .array(let array): return array.reduce(0) { $0 + $1.byteCount } // Should not be ussed
+        default: return 0
+
+
+            //        case .string: return 0 // Should not be ussed
+            //        case .array(let array): return array.reduce(0) { $0 + $1.byteCount } // Should not be ussed
         }
     }
 }
 
+enum UlogValue {
+    case uint8([[UInt8]])
+    case int8([[Int8]])
+    case uint16([[UInt16]])
+    case int16([[Int16]])
+    case uint32([[UInt32]])
+    case int32([[Int32]])
+    case uint64([[UInt64]])
+    case int64([[Int64]])
+    case float([[Float]])
+    case double([[Double]])
+    case bool([[Bool]])
+    case char([String])
+    case custom([UlogFormat])
 
-// 
-// Messages
+    init?(typeName: String) {
+        print("TypeName:\(typeName)")
+        switch typeName {
+        case "int8_t": self = .int8
+        case "uint8_t": self = .uint8
+        case "int16_t": self = .int16
+        case "uint16_t": self = .uint16
+        case "int32_t": self = .int32
+        case "uint32_t": self = .uint32
+        case "int64_t": self = .int64
+        case "uint64_t": self = .uint64
+        case "float": self = .float
+        case "double": self = .double
+        case "bool": self = .bool
+        case "char": self = .char
+
+        default:
+
+        }
+
+        var byteCount: Int {
+            switch self {
+            case .int8: return 1
+            case .uint8: return 1
+            case .int16: return 2
+            case .uint16: return 2
+            case .int32: return 4
+            case .uint32: return 4
+            case .int64: return 8
+            case .uint64: return 8
+            case .float: return 4
+            case .double: return 8
+            case .bool: return 1
+            default: return 0
+
+
+                //        case .string: return 0 // Should not be ussed
+                //        case .array(let array): return array.reduce(0) { $0 + $1.byteCount } // Should not be ussed
+            }
+        }
+    }
+
+
+    //
+    // Messages
 //
 
 struct MessageHeader: CustomStringConvertible {
@@ -360,7 +421,6 @@ class ULog {
             var ptr = UnsafeMutableRawPointer(mutating: u8Ptr)
             let initialPointer = ptr
             
-            
             while iteration < iterationMax {
                 iteration += 1
                 let newTime = Date()
@@ -379,12 +439,12 @@ class ULog {
                 
                 
                 switch messageHeader.type {
-                case .info:
-                    guard let message = MessageInfo(data: Data(bytes: ptr, count: Int(messageHeader.size)), header: messageHeader) else { return }
+                case .Info:
+                    guard let message = MessageInfo(data: data, header: messageHeader) else { return }
                     infos.append(message)
                     break
-                case .format:
-                    guard let message = MessageFormat(data: Data(bytes: ptr, count: Int(messageHeader.size)), header: messageHeader) else { return }
+                case .Format:
+                    guard let message = MessageFormat(data: data, header: messageHeader) else { return }
                     messageFormats.append(message)
                     
                     let name = message.messageName
@@ -402,18 +462,18 @@ class ULog {
                     formats[name] = f
                     
                     break
-                case .parameter:
-                    let message = MessageParameter(data: Data(bytes: ptr, count: Int(messageHeader.size)), header: messageHeader)
+                case .Parameter:
+                    let message = MessageParameter(data: data, header: messageHeader)
                     parameters.append(message)
-                case .addLoggedMessage:
-                    let message = MessageAddLoggedMessage(data: Data(bytes: ptr, count: Int(messageHeader.size)), header: messageHeader)
+                case .AddLoggedMessage:
+                    let message = MessageAddLoggedMessage(data: data, header: messageHeader)
                     addLoggedMessages.append(message)
                     
                     formatsByLoggedId.insert(formats[message.messageName]!, at: Int(message.id))
                     break
                     
-                case .data:
-                    let message = MessageData(data: Data(bytes: ptr, count: Int(messageHeader.size)), header: messageHeader)
+                case .Data:
+                    let message = MessageData(data: data, header: messageHeader)
                     
                     var index = 0
                     let format = formatsByLoggedId[Int(message.id)]
@@ -431,13 +491,13 @@ class ULog {
                     self.data[format.name]!.append(content)
                     break
                     
-                case .logging:
-                    let message = MessageLog(data: Data(bytes: ptr, count: Int(messageHeader.size)), header: messageHeader)
+                case .Logging:
+                    let message = MessageLog(data: data, header: messageHeader)
                     print(message.message)
                     break
                     
-                case .dropout:
-                    let message = MessageDropout(data: Data(bytes: ptr, count: Int(messageHeader.size)), header: messageHeader)
+                case .Dropout:
+                    let message = MessageDropout(data: data, header: messageHeader)
                     print("dropout \(message.duration) ms")
                     break
                     
@@ -458,6 +518,8 @@ class ViewController: NSViewController {
 
         // Do any additional setup after loading the view.
         
+//        let path = "/Users/aokholm/src/kitex/PX4/Firmware/build_posix_sitl_default_replay/tmp/rootfs/fs/microsd/log/2017-08-04/15_19_22_replayed.ulg"
+
         let path = "~/Dropbox/10. KITEX/PrototypeDesign/10_32_17.ulg"
         
         let location = NSString(string: path).expandingTildeInPath
