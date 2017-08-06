@@ -78,38 +78,54 @@ struct UlogFormat: ULogType {
     let properties: [String : ULogType]
 }
 
-enum UlogPrimitive: String, ULogType {
-    case uint8 = "uint8_t"
-    case uint16 = "uint16_t"
-    case uint32 = "uint32_t"
-    case uint64 = "uint64_t"
-    case int8 = "int8_t"
-    case int16 = "int16_t"
-    case int32 = "int32_t"
-    case int64 = "int64_t"
-    case float = "float_t"
-    case double = "double_t"
-    case bool = "bool_t"
-    case char = "char_t"
+struct ULogList: ULogType {
+    let n: Int
+    let type: UlogPrimitive
+}
 
-    case uint8s = "uint8_t[]"
-    case uint16s = "uint16_t[]"
-    case uint32s = "uint32_t[]"
-    case uint64s = "uint64_t[]"
-    case int8s = "int8_t[]"
-    case int16s = "int16_t[]"
-    case int32s = "int32_t[]"
-    case int64s = "int64_t[]"
-    case floats = "float_t[]"
-    case doubles = "double_t[]"
-    case bools = "bool_t[]"
-    case chars = "char_t[]"
+enum UlogPrimitive: ULogType {
+    case uint8, uint16, uint32, uint64, int8, int16, int32, int64, float, double, bool, char
+    case uint8s(Int), uint16s(Int), uint32s(Int), uint64s(Int), int8s(Int), int16s(Int), int32s(Int), int64s(Int), floats(Int), doubles(Int), bools(Int), chars(Int)
+
+    var count: Int {
+        switch self {
+        case uint8s(let n): return n
+        }
+    }
+
+//    case uint8 = "uint8_t"
+//    case uint16 = "uint16_t"
+//    case uint32 = "uint32_t"
+//    case uint64 = "uint64_t"
+//    case int8 = "int8_t"
+//    case int16 = "int16_t"
+//    case int32 = "int32_t"
+//    case int64 = "int64_t"
+//    case float = "float_t"
+//    case double = "double_t"
+//    case bool = "bool_t"
+//    case char = "char_t"
+//
+//    case uint8s = "uint8_t[]"
+//    case uint16s = "uint16_t[]"
+//    case uint32s = "uint32_t[]"
+//    case uint64s = "uint64_t[]"
+//    case int8s = "int8_t[]"
+//    case int16s = "int16_t[]"
+//    case int32s = "int32_t[]"
+//    case int64s = "int64_t[]"
+//    case floats = "float_t[]"
+//    case doubles = "double_t[]"
+//    case bools = "bool_t[]"
+//    case chars = "char_t[]"
 
     init?(typeName: String) {
 
     }
 
-    
+//    private static let pairs: [UlogPrimitive : String] = [.uint8 : "uint8_t", .uint16 : "uint16_t", .uint32 : "uint32_t", .uint64 : "uint64_t", .int8 : "int8_t", .int16 : "int16_t", .int32 : "int32_t", .int64 : "int64_t", .float : "float_t", .double : "double_t", .bool : "bool_t", .char : "char_t", .uint8s : "uint8_t[<n>]", .uint16s : "uint16_t[<n>]", .uint32s : "uint32_t[<n>]", .uint64s : "uint64_t[<n>]", .int8s : "int8_t[<n>]", .int16s : "int16_t[<n>]", .int32s : "int32_t[<n>]", .int64s : "int64_t[<n>]", .floats : "float_t[<n>]", .doubles : "double_t[<n>]", .bools : "bool_t[<n>]", .chars : "char_t[<n>]"]
+
+}
 
         //        print("TypeName:\(typeName)")
 //        switch typeName {
@@ -130,7 +146,6 @@ enum UlogPrimitive: String, ULogType {
 //
 //        }
 //    }
-}
 
 enum UlogValue {
     case uint8(UInt8)
