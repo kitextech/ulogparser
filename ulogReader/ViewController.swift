@@ -14,13 +14,9 @@ extension Data {
     }
     
     func toString() -> String {
-        return String( self.map { Character(UnicodeScalar($0)) } )
+        return String(map { Character(UnicodeScalar($0)) })
     }
-    
-    func to<T>(type: T.Type) -> T {
-        return withUnsafeBytes { pointer in return pointer.pointee }
-    }
-    
+
     func toValueType<T>() -> T {
         return withUnsafeBytes { pointer in return pointer.pointee }
     }
@@ -71,33 +67,21 @@ enum MessageType: Character {
 //            }
             //        }
 
+struct ULogFormatCustom: CustomStringConvertible {
+    let typeName: String
+    let properties: [String : ULogFormatProperty]
 
-/*
-
- vehicle_location_t
-     time: double_t
-
-     position: vehicle_position_t
-         x: float_t
-         y: float_t
-         z: float_t
-
-     name: char_t[5]
- 
- */
-
-struct LogCustom: CustomStringConvertible {
-    let name: String
-    let properties: [String : LogProperty]
+    init(_ typeName: String, _ properties:  [String : ULogFormatProperty]) {
+        self.typeName = typeName
+        self.properties = properties
+    }
 
     var description: String {
-        return ([name] + indent(format)).joined(separator: "\n")
+        return ([typeName] + indent(format)).joined(separator: "\n")
     }
 
     var format: [String] {
-        return properties.flatMap { key, value in
-            ["\(key): \(value.name)"] + indent(value.format)
-        }
+        return properties.flatMap { name, property in ["\(name): \(property.typeName)"] + indent(property.format) }
     }
 
     private func indent(_ list: [String]) -> [String] {
@@ -105,19 +89,18 @@ struct LogCustom: CustomStringConvertible {
     }
 }
 
-enum LogProperty {
-    case builtin(LogBuiltin)
-    case custom(LogCustom)
-    case builtins(LogBuiltin, Int)
-    case customs(LogCustom, Int)
+enum ULogFormatProperty {
+    case builtin(ULogFormatBuiltin)
+    case custom(ULogFormatCustom)
+    case builtins(ULogFormatBuiltin, Int)
+    case customs(ULogFormatCustom, Int)
 
-
-    var name: String {
+    var typeName: String {
         switch self {
-        case .builtin(let builtin): return builtin.name
-        case .custom(let format): return format.name
-        case .builtins(let builtin, let n): return builtin.name + "[\(n)]"
-        case .customs(let format, let n): return format.name + "[\(n)]"
+        case .builtin(let builtin): return builtin.typeName
+        case .custom(let format): return format.typeName
+        case .builtins(let builtin, let n): return builtin.typeName + "[\(n)]"
+        case .customs(let format, let n): return format.typeName + "[\(n)]"
         }
     }
 
@@ -129,7 +112,7 @@ enum LogProperty {
     }
 }
 
-enum LogBuiltin: String {
+enum ULogFormatBuiltin: String {
     case uint8 = "uint8_t"
     case uint16 = "uint16_t"
     case uint32 = "uint32_t"
@@ -143,17 +126,165 @@ enum LogBuiltin: String {
     case bool = "bool_t"
     case char = "char_t"
 
-    var name: String {
+    var typeName: String {
         return rawValue
     }
+}
+
+// my_type_t
+//     my_float: float_t[2]
+//         0: float_t = 4.55
+//         1: float_t = 3.41
+//     my_pos: my_pos_type_t =
+//         x: float_t = 3
+//         y: float_t = 5
+//     my_path: my_pos_type_t[2] =
+//         0: my_pos_type_t
+//             x: float_t = 3
+//             y: float_t = 5
+//         1: my_pos_type_t
+//             x: float_t = 3
+//             y: float_t = 5
+//     time: double_t = 45
+
+// my_type_t
+//     my_float: float_t[2]
+//     my_pos: my_pos_type_t
+//         x: float_t
+//         y: float_t
+//     my_path: my_pos_type_t[2]
+//         x: float_t
+//         y: float_t
+//     time: double_t = 45
+
+// my_type_t = {
+//     my_float: float_t[2] = [
+//         0: 4.55
+//         1: 3.41
+//     ]
+//
+//     my_pos: my_pos_type_t = {
+//         x: float_t = 3
+//         y: float_t = 5
+//     }
+//
+//     my_path: my_pos_type_t[2] = [
+//         0: my_pos_type_t = {
+//             x: float_t = 3
+//             y: float_t = 5
+//         }
+//         1: my_pos_type_t = {
+//             x: float_t = 3
+//             y: float_t = 5
+//         }
+//     ]
+//
+//     time: double_t = 45
+// }
+
+
+private func indent(_ list: [String]) -> [String] {
+    return list.map { "    " + $0 }
+}
+
+private func wrap(_ typeName: String, _ contents: [String]) -> [String] {
+    return contents.isEmpty ? ["\(typeName) = { }"] : ["\(typeName) = {"] + indent(contents) + [""]
+}
+
+struct ULogValueCustom: CustomStringConvertible {
+    let typeName: String
+    let properties: [String : ULogValueProperty]
+
+    init(_ typeName: String, _ properties:  [String : ULogValueProperty]) {
+        self.typeName = typeName
+        self.properties = properties
+    }
+
+    var description: String {
+        return ([typeName] + indent(contents)).joined(separator: "\n")
+    }
+
+    var contents: [String] {
+        let opening = "\(typeName) = {"
+        let closing = "}"
+
+        return properties.isEmpty ? [opening + " " + closing] : properties.flatMap { key, property in ["\(key): \(property.typeName)"] + indent(property.format) }
+    }
+}
+
+enum ULogValueProperty {
+    case builtin(ULogFormatBuiltin)
+    case custom(ULogFormatCustom)
+    case builtins(ULogFormatBuiltin, Int)
+    case customs(ULogFormatCustom, Int)
+
+    var typeName: String {
+        switch self {
+        case .builtin(let builtin): return builtin.typeName
+        case .custom(let format): return format.typeName
+        case .builtins(let builtin, let n): return builtin.typeName + "[\(n)]"
+        case .customs(let format, let n): return format.typeName + "[\(n)]"
+        }
+    }
+
+    var format: [String] {
+        switch self {
+        case .builtin, .builtins: return []
+        case .custom(let format), .customs(let format, _): return format.format
+        }
+    }
+
+
+    var contents: [String] {
+        switch self {
+        case .builtin(let builtin): return builtin.typeName
+        case .custom(let format): return format.typeName
+        case .builtins(let builtin, let n): return builtin.typeName + "[\(n)]"
+        case .customs(let format, let n): return format.typeName + "[\(n)]"
+        }
+    }
+}
+
+enum ULogValueBuiltin {
+    case uint8(UInt8)
+    case uint16(UInt16)
+    case uint32(UInt32)
+    case uint64(UInt64)
+    case int8(Int8)
+    case int16(Int16)
+    case int32(Int32)
+    case int64(Int64)
+    case float(Float)
+    case double(Float)
+    case bool(Bool)
+    case char(Character)
+
+    var contents: String {
+        switch self {
+        case .uint8(let val): return "uint8_t = \(val)"
+        case .uint16(let val): return "uint16_t = \(val)"
+        case .uint32(let val): return "uint32_t = \(val)"
+        case .uint64(let val): return "uint64_t = \(val)"
+
+        default:
+            fatalError()
+        }
+    }
+
+//    private static let all: [ULogValueBuiltin : String] = [
+//        .uint8 : "uint8_t",
+//        .uint16 : "uint16_t",
+//        .uint32 : "uint32_t",
+//        .uint64 : "uint64_t"
+//    ]
 }
 
 class ViewController: NSViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        let pos = LogCustom(name: "vehicle_position_t", properties: ["x" : .builtin(.float), "y" : .builtin(.float), "z" : .builtin(.float)])
-        let loc = LogCustom(name: "vehicle_location_t", properties: ["timestamp" : .builtin(.double), "position" : .custom(pos)])
+        let pos = ULogFormatCustom("vehicle_position_t", ["x" : .builtin(.float), "y" : .builtin(.float), "z" : .builtin(.float)])
+        let loc = ULogFormatCustom("vehicle_location_t", ["timestamp" : .builtin(.double), "position" : .custom(pos)])
 
         print(pos)
         print("---")
@@ -222,20 +353,6 @@ class ViewController: NSViewController {
 //        return []
 //    }
 //}
-//
-///*
-// type {
-//    propname0: property
-// }
-// 
-// property = [type, list]
-//
-// typename: primitive {
-// propname0: primitive
-// propname1: list<primitive>
-// }
-// */
-//
 //
 //enum UlogValue {
 //    case uint8(UInt8)
