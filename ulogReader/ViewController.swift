@@ -67,25 +67,45 @@ enum MessageType: Character {
 //            }
             //        }
 
+class ULogFormatParser: CustomStringConvertible {
+    private var formats: [ULogFormat] = []
+
+    func add(_ format: ULogFormat) {
+        let expanded = expandedWithExisting(format)
+        expandExisting(with: expanded)
+        formats.append(expanded)
+    }
+
+    func byteOffset(path: String) -> UInt? {
+        let pathComponents = path.components(separatedBy: ".")
+        guard let typeName = pathComponents.first, let format = formats.first(where: { $0.typeName == typeName }) else {
+            return nil
+        }
+
+        return format.byteOffset(to: Array(pathComponents.dropFirst()))
+    }
+
+    private func expandedWithExisting(_ format: ULogFormat) -> ULogFormat {
+        var expandedFormat = format
+        for existingFormat in formats {
+            expandedFormat = expandedFormat.expanded(with: existingFormat)
+        }
+
+        return expandedFormat
+    }
+
+    private func expandExisting(with format: ULogFormat) {
+        formats = formats.map { $0.expanded(with: format) }
+    }
+
+    var description: String {
+        return formats.map { $0.description }.joined(separator: "\n\n")
+    }
+}
+
 struct ULogFormat: CustomStringConvertible {
     let typeName: String
     let properties: [(String, ULogProperty)]
-//
-//    func contains(_ format: ULogFormat) -> Bool {
-//        for property in properties {
-//            if property.1.typeName == format.typeName {
-//                print("Member \(property.0) in \(typeName)")
-//            }
-//        }
-//    }
-
-    func expanded(with customType: ULogFormat) -> ULogFormat {
-        if customType.typeName == typeName {
-            return customType
-        }
-
-        return ULogFormat(typeName, properties.map { ($0, $1.expanded(with: customType)) })
-    }
 
     init(_ typeName: String, _ properties: [(String, ULogProperty)]) {
         self.typeName = typeName
@@ -102,30 +122,50 @@ struct ULogFormat: CustomStringConvertible {
         }
     }
 
-    static func test() {
-//        let parser = ULogFormatter()
-//        parser.parse("vehicle_attitude_t:uint64_t timestamp;float rollspeed;float pitchspeed;my_special_t[4] special;super_special_t super;float yawspeed;float[4] q;")
-//        parser.parse("my_special_t:float yaw;float roll;super_special_t super;")
-//        parser.parse("super_special_t:float x;float y;")
+    func expanded(with customType: ULogFormat) -> ULogFormat {
+        if customType.typeName == typeName {
+            return customType
+        }
 
-        let va = ULogFormat("vehicle_attitude_t:uint64_t timestamp;float rollspeed;float pitchspeed;my_special_t[4] special;super_special_t super;float yawspeed;float[4] q;uint8_t[4] _padding0;")
-        let ms = ULogFormat("my_special_t:float yaw;float roll;super_special_t super;")
-        let ss = ULogFormat("super_special_t:float x;float y;")
+        return ULogFormat(typeName, properties.map { ($0, $1.expanded(with: customType)) })
+    }
 
-        print(va)
-        print(ms)
-        print("---")
-        print(va.expanded(with: ms))
+    func byteOffset(to path: [String]) -> UInt? {
+        var offsetToProperty: UInt = 0
+        for property in properties {
+            let nameAndIndex = nameAndNumber(path[0])
 
-        print("---")
-        print(va.expanded(with: ss))
+            if property.0 == nameAndIndex.name {
+                guard let recursiveOffset = property.1.byteOffset(to: Array(path.dropFirst())) else { return nil }
 
-        print("---")
-        print(va.expanded(with: ms).expanded(with: ss))
+                let arrayOffset: UInt
 
-        print("---")
-        print(va.expanded(with: ms).expanded(with: ss))
+                if let i = nameAndIndex.number {
+                    switch property.1 {
+                    case .builtins(let type, let n) where i < n:
+                        arrayOffset = i*type.byteCount
+                    case .customs(let type, let n) where i < n:
+                        arrayOffset = i*type.byteCount
+                    default: return nil
+                    }
+                }
+                else {
+                    arrayOffset = 0
+                }
 
+                return offsetToProperty + arrayOffset + recursiveOffset
+
+            }
+            else {
+                offsetToProperty += property.1.byteCount
+            }
+        }
+
+        return nil
+    }
+
+    var byteCount: UInt {
+        return properties.reduce(0) { $0 + $1.1.byteCount }
     }
 
     var description: String {
@@ -135,47 +175,78 @@ struct ULogFormat: CustomStringConvertible {
     var format: [String] {
         return properties.flatMap { name, property in ["\(name): \(property.typeName)"] + indent(property.format) }
     }
-}
 
-class ULogFormatter {
-    var formats: [ULogFormat] = []
+    static func test() {
+        let parser = ULogFormatParser()
 
-    func parse(_ string: String) {
-        let newFormat = ULogFormat(string)
+        let vas = ULogFormat("vehicle_attitude_t:uint64_t timestamp;float rollspeed;float pitchspeed;my_special_t[4] special;super_special_t super;float yawspeed;float[4] q;uint8_t[4] _padding0;")
+        let mss = ULogFormat("my_special_t:float yaw;float roll;super_special_t super;")
+        let sss = ULogFormat("super_special_t:float x;float y;")
 
-        print("\nParsed \(newFormat.typeName) -----------------------")
+        parser.add(vas)
+        parser.add(mss)
+        parser.add(sss)
 
-        for format in formats {
+        func off(path: String) {
+            print("Offset to \(path)")
 
+            if let offset = parser.byteOffset(path: path) {
+                print("    >\(offset)")
+            }
+            else {
+                print("    >Not found")
+            }
         }
 
-        formats.append(newFormat)
+        print(parser)
 
+        off(path: "vehicle_attitude_t.special")
+        off(path: "vehicle_attitude_t.special[2]")
+        off(path: "vehicle_attitude_t.special[2].yaw")
+        off(path: "vehicle_attitude_t.special[2].super")
+        off(path: "vehicle_attitude_t.special[2].super.x")
+        off(path: "vehicle_attitude_t.special[3].super.x")
+        off(path: "vehicle_attitude_t.special[5]")
 
-        for format in formats {
-            print()
-            print(format)
-        }
-    }
+        off(path: "vehicle_attitude_t.q")
+        off(path: "vehicle_attitude_t.q[0]")
+        off(path: "vehicle_attitude_t.q[1]")
+        off(path: "vehicle_attitude_t.q[2]")
+        off(path: "vehicle_attitude_t.q[3]")
+        off(path: "vehicle_attitude_t.q[4]")
 
-    private func expandedWithExisting(_ format: ULogFormat) {
-
+        off(path: "my_special_t.yaw")
+        off(path: "my_special_t.super")
+        off(path: "my_special_t.super.x")
+        off(path: "my_special_t.super.y")
     }
 }
 
 enum ULogProperty {
     case builtin(ULogPrimitive)
     case custom(ULogFormat)
-    case builtins(ULogPrimitive, Int)
-    case customs(ULogFormat, Int)
+    case builtins(ULogPrimitive, UInt)
+    case customs(ULogFormat, UInt)
 
-//    func contains(_ customType: ULogFormat) -> Bool {
-//        switch self {
-//        case .custom(let format): return format.contains(customType)
-//        case .customs(let format, _): return format.contains(customType)
-//        default: return false
-//        }
-//    }
+    init(_ formatString: String) {
+        let components = nameAndNumber(formatString)
+        if let arraySize = components.number {
+            if let builtin = ULogPrimitive(rawValue: components.name) {
+                self = .builtins(builtin, arraySize)
+            }
+            else {
+                self = .customs(.init(components.name, []), arraySize)
+            }
+        }
+        else {
+            if let builtin = ULogPrimitive(rawValue: components.name) {
+                self = .builtin(builtin)
+            }
+            else {
+                self = .custom(.init(components.name, []))
+            }
+        }
+    }
 
     func expanded(with customType: ULogFormat) -> ULogProperty {
         switch self {
@@ -185,24 +256,20 @@ enum ULogProperty {
         }
     }
 
-    init(_ formatString: String) {
-        let components = formatString.components(separatedBy: ["[", "]"])
-        if let arraySize = components.count == 3 ? Int(components[1]) : nil {
-            let formatString = components[0]
-            if let builtin = ULogPrimitive(rawValue: formatString) {
-                self = .builtins(builtin, arraySize)
-            }
-            else {
-                self = .customs(.init(formatString, []), arraySize)
-            }
+    func byteOffset(to path: [String]) -> UInt? {
+        switch (path.count, self) {
+        case (0, _): return 0
+        case (_, .customs(let format, _)), (_, .custom(let format)): return format.byteOffset(to: path)
+        default: return nil
         }
-        else {
-            if let builtin = ULogPrimitive(rawValue: formatString) {
-                self = .builtin(builtin)
-            }
-            else {
-                self = .custom(.init(formatString, []))
-            }
+    }
+
+    var byteCount: UInt {
+        switch self {
+        case .builtin(let primitiveType): return primitiveType.byteCount
+        case .builtins(let primitiveType, let n): return n*primitiveType.byteCount
+        case .custom(let customType): return customType.byteCount
+        case .customs(let customType, let n): return n*customType.byteCount
         }
     }
 
@@ -223,6 +290,15 @@ enum ULogProperty {
     }
 }
 
+func nameAndNumber(_ formatString: String) -> (name: String, number: UInt?) {
+    let parts = formatString.components(separatedBy: ["[", "]"])
+    guard parts.count == 3, let count = UInt(parts[1]) else {
+        return (parts[0], nil)
+    }
+
+    return (parts[0], count)
+}
+
 enum ULogPrimitive: String {
     case uint8 = "uint8_t"
     case uint16 = "uint16_t"
@@ -239,6 +315,23 @@ enum ULogPrimitive: String {
 
     var typeName: String {
         return rawValue
+    }
+
+    var byteCount: UInt {
+        switch self {
+        case .uint8: return 1
+        case .uint16: return 2
+        case .uint32: return 4
+        case .uint64: return 8
+        case .int8: return 1
+        case .int16: return 2
+        case .int32: return 4
+        case .int64: return 8
+        case .float: return 4
+        case .double: return 8
+        case .bool: return 1
+        case .char: return 1
+        }
     }
 }
 
@@ -750,9 +843,9 @@ class ViewController: NSViewController {
 //        let variableKey = "timestamp"
         
         
-        let messageName = "fw_turning"
-        let variableKey = "arc_radius"
-        
+//        let messageName = "fw_turning"
+//        let variableKey = "arc_radius"
+
 //        let f = ulog.formats[messageName]!
 //        let sensorCombinedData = ulog.data[messageName]!
 
