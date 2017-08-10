@@ -38,35 +38,6 @@ enum MessageType: Character {
     case flagBits = "B"
 }
 
-// Ulog Datatypes
-
-//            let regExp: NSRegularExpression = ""
-
-//            if typeName.contains("[") {
-//                if typeName.contains("char") {
-//                    self = .string
-//                }
-//                else {
-//                    let g = typeName.range(of: "[")
-//                    let gg = g!.lowerBound
-//                    let ggg = typeName.substring(to: gg)
-//                    let type = UlogType(typeName: ggg)!
-//
-//                    //                    let type = UlogType(typeName: typeName.substring(to: typeName.range(of: "[")!.lowerBound))!
-//
-//                    let x = typeName.range(of: "[")!.upperBound
-//                    let y = typeName.range(of: "]")!.lowerBound
-//
-//                    let count = Int(typeName.substring(with: x..<y))!
-//
-//                    self = .array(Array(repeatElement(type, count: count)))
-//                }
-//            }
-//            else {
-//                return nil
-//            }
-            //        }
-
 class ULogFormatParser: CustomStringConvertible {
     private var formats: [ULogFormat] = []
 
@@ -76,7 +47,25 @@ class ULogFormatParser: CustomStringConvertible {
         formats.append(expanded)
     }
 
-    func byteOffset(path: String) -> UInt? {
+    func property(at path: String) -> ULogProperty? {
+        let pathComponents = path.components(separatedBy: ".")
+        guard let typeName = pathComponents.first, let format = formats.first(where: { $0.typeName == typeName }) else {
+            return nil
+        }
+
+        return format.property(at: Array(pathComponents.dropFirst()))
+    }
+
+    func size(at path: String) -> UInt? {
+        let pathComponents = path.components(separatedBy: ".")
+        guard let typeName = pathComponents.first, let format = formats.first(where: { $0.typeName == typeName }) else {
+            return nil
+        }
+
+        return format.size(at: Array(pathComponents.dropFirst()))
+    }
+
+    func byteOffset(to path: String) -> UInt? {
         let pathComponents = path.components(separatedBy: ".")
         guard let typeName = pathComponents.first, let format = formats.first(where: { $0.typeName == typeName }) else {
             return nil
@@ -130,30 +119,77 @@ struct ULogFormat: CustomStringConvertible {
         return ULogFormat(typeName, properties.map { ($0, $1.expanded(with: customType)) })
     }
 
+    // specifies index,        index ok,     _                       is array     - OK   - return dearrayed type
+    // does not specify index, _             -                       is not array - OK   - return self
+    // does not specify index, _             path ends here,         is array     - OK   - return self
+    // does not specify index, _             path does not end here, is array     - FAIL - return nil
+    // specifies index,        index not ok, _                       is array     - FAIL - return nil
+    // specifies index,        _             _                       is not array - FAIL - return nil
+
+    func property(at path: [String]) -> ULogProperty? {
+        let nameAndIndex = nameAndNumber(path[0])
+
+        guard let property = properties.first(where: { $0.0 == nameAndIndex.name })?.1 else {
+            return nil
+        }
+
+        let propertyToRecurse: ULogProperty?
+
+        switch (nameAndIndex.number, path.count, property) {
+        case let (i?, _, .builtins(type, n)) where i < n: propertyToRecurse = .builtin(type)
+        case let (i?, _, .customs(type, n)) where i < n: propertyToRecurse = .custom(type)
+        case (nil, _, .builtin), (nil, _, .custom): propertyToRecurse = property
+        case (nil, 1, .builtins), (nil, 1, .customs): propertyToRecurse = property
+        default: propertyToRecurse = nil
+        }
+
+        return propertyToRecurse?.property(at: Array(path.dropFirst()))
+    }
+
+    func size(at path: [String]) -> UInt? {
+        let nameAndIndex = nameAndNumber(path[0])
+
+        guard let property = properties.first(where: { $0.0 == nameAndIndex.name })?.1 else {
+            return nil
+        }
+
+        return properties.reduce(0) { $0 + $1.1.byteCount }
+
+
+        let propertyToRecurse: ULogProperty?
+
+        switch (nameAndIndex.number, path.count, property) {
+        case let (i?, _, .builtins(type, n)) where i < n: propertyToRecurse = .builtin(type)
+        case let (i?, _, .customs(type, n)) where i < n: propertyToRecurse = .custom(type)
+        case (nil, _, .builtin), (nil, _, .custom): propertyToRecurse = property
+        case (nil, 1, .builtins), (nil, 1, .customs): propertyToRecurse = property
+        default: propertyToRecurse = nil
+        }
+
+        return propertyToRecurse?.size(at: Array(path.dropFirst()))
+    }
+
     func byteOffset(to path: [String]) -> UInt? {
         var offsetToProperty: UInt = 0
         for property in properties {
             let nameAndIndex = nameAndNumber(path[0])
 
             if property.0 == nameAndIndex.name {
-                guard let recursiveOffset = property.1.byteOffset(to: Array(path.dropFirst())) else { return nil }
-
-                let arrayOffset: UInt
-
-                if let i = nameAndIndex.number {
-                    switch property.1 {
-                    case .builtins(let type, let n) where i < n:
-                        arrayOffset = i*type.byteCount
-                    case .customs(let type, let n) where i < n:
-                        arrayOffset = i*type.byteCount
-                    default: return nil
-                    }
-                }
-                else {
-                    arrayOffset = 0
+                guard let offsetInsideProperty = property.1.byteOffset(to: Array(path.dropFirst())) else {
+                    return nil
                 }
 
-                return offsetToProperty + arrayOffset + recursiveOffset
+                let offset: UInt?
+
+                switch (nameAndIndex.number, path.count, property.1) {
+                case let (i?, _, .builtins(type, n)) where i < n: offset = offsetToProperty + i*type.byteCount + offsetInsideProperty
+                case let (i?, _, .customs(type, n)) where i < n: offset = offsetToProperty + i*type.byteCount + offsetInsideProperty
+                case (nil, _, .builtin), (nil, _, .custom): offset = offsetToProperty + offsetInsideProperty
+                case (nil, 1, .builtins), (nil, 1, .customs): offset = offsetToProperty + offsetInsideProperty
+                default: return nil
+                }
+
+                return offset
 
             }
             else {
@@ -188,37 +224,102 @@ struct ULogFormat: CustomStringConvertible {
         parser.add(sss)
 
         func off(path: String) {
-            print("Offset to \(path)")
+            print("\(path)")
 
-            if let offset = parser.byteOffset(path: path) {
-                print("    >\(offset)")
+            if let offset = parser.byteOffset(to: path) {
+                print("    Offset >\(offset)")
             }
             else {
                 print("    >Not found")
             }
+
+//            if let prop = parser.property(at: path) {
+//                print("    Info   >\(prop)")
+//            }
+//            else {
+//                print("    >Not found")
+//            }
         }
 
         print(parser)
 
-        off(path: "vehicle_attitude_t.special")
+
+        // Case 1: specifies index,        index ok,     _                       is array     - OK   - return dearrayed type
+
+        // Case 2: does not specify index, _             -                       is not array - OK   - return self
+
+        // Case 3: does not specify index, _             path ends here,         is array     - OK   - return self
+
+        // Case 4: does not specify index, _             path does not end here, is array     - FAIL - return nil
+
+        // Case 5: specifies index,        index not ok, _                       is array     - FAIL - return nil
+
+        // Case 6: specifies index,        _             _                       is not array - FAIL - return nil
+
+
+        print()
+        print("Case 1: specifies index,        index ok,     _                       is array ")
+        off(path: "vehicle_attitude_t.q[3]")
         off(path: "vehicle_attitude_t.special[2]")
         off(path: "vehicle_attitude_t.special[2].yaw")
-        off(path: "vehicle_attitude_t.special[2].super")
-        off(path: "vehicle_attitude_t.special[2].super.x")
-        off(path: "vehicle_attitude_t.special[3].super.x")
-        off(path: "vehicle_attitude_t.special[5]")
+        off(path: "vehicle_attitude_t.special[2].roll")
 
-        off(path: "vehicle_attitude_t.q")
-        off(path: "vehicle_attitude_t.q[0]")
-        off(path: "vehicle_attitude_t.q[1]")
-        off(path: "vehicle_attitude_t.q[2]")
-        off(path: "vehicle_attitude_t.q[3]")
-        off(path: "vehicle_attitude_t.q[4]")
-
+        print()
+        print("Case 2: does not specify index, _             -                       is not array ")
+        off(path: "my_special_t.super.x")
         off(path: "my_special_t.yaw")
         off(path: "my_special_t.super")
-        off(path: "my_special_t.super.x")
-        off(path: "my_special_t.super.y")
+
+        print()
+        print("Case 3: does not specify index, _             path ends here,         is array ")
+        off(path: "vehicle_attitude_t.special")
+        off(path: "vehicle_attitude_t.q")
+
+        print()
+        print("Case 4: does not specify index, _             path does not end here ")
+        off(path: "vehicle_attitude_t.special.super.x")
+        off(path: "vehicle_attitude_t.q.wrong")
+
+        print()
+        print("Case 5: specifies index,        index not ok, _                       is array ")
+        off(path: "vehicle_attitude_t.q[4]")
+        off(path: "vehicle_attitude_t.special[8]")
+        off(path: "vehicle_attitude_t.special[8].yaw")
+
+        print()
+        print("Case 6: specifies index,        _             _                       is not array ")
+        off(path: "my_special_t.yaw[1]")
+        off(path: "my_special_t.yaw[1].x")
+        off(path: "my_special_t.super[1]")
+        off(path: "my_special_t.super[1].x")
+
+
+//        off(path: "vehicle_attitude_t.special[2]")
+//        off(path: "vehicle_attitude_t.special[2]")
+//        off(path: "vehicle_attitude_t.special[2]")
+//        off(path: "vehicle_attitude_t.special[2]")
+//
+//        off(path: "vehicle_attitude_t.special")
+//        off(path: "vehicle_attitude_t.special[2]")
+//        off(path: "vehicle_attitude_t.special[2].yaw")
+//        off(path: "vehicle_attitude_t.special[2].super")
+//        off(path: "vehicle_attitude_t.special[2].super.x")
+//        off(path: "vehicle_attitude_t.special[3].super.x")
+//        off(path: "vehicle_attitude_t.special[5]")
+//        off(path: "vehicle_attitude_t.special[5].super.x")
+//        off(path: "vehicle_attitude_t.special.super.x")
+//
+//        off(path: "vehicle_attitude_t.q")
+//        off(path: "vehicle_attitude_t.q[0]")
+//        off(path: "vehicle_attitude_t.q[1]")
+//        off(path: "vehicle_attitude_t.q[2]")
+//        off(path: "vehicle_attitude_t.q[3]")
+//        off(path: "vehicle_attitude_t.q[4]")
+//
+//        off(path: "my_special_t.yaw")
+//        off(path: "my_special_t.super")
+//        off(path: "my_special_t.super.x")
+//        off(path: "my_special_t.super.y")
     }
 }
 
@@ -227,6 +328,13 @@ enum ULogProperty {
     case custom(ULogFormat)
     case builtins(ULogPrimitive, UInt)
     case customs(ULogFormat, UInt)
+
+    var isArray: Bool {
+        switch self {
+        case .customs, .builtins: return true
+        default: return false
+        }
+    }
 
     init(_ formatString: String) {
         let components = nameAndNumber(formatString)
@@ -254,6 +362,18 @@ enum ULogProperty {
         case .customs(let format, let n): return .customs(format.expanded(with: customType), n)
         default: return self
         }
+    }
+
+    func property(at path: [String]) -> ULogProperty? {
+        switch (path.count, self) {
+        case (0, _): return self
+        case (_, .customs(let format, _)), (_, .custom(let format)): return format.property(at: path)
+        default: return nil
+        }
+    }
+
+    func size(at path: [String]) -> UInt? {
+        fatalError()
     }
 
     func byteOffset(to path: [String]) -> UInt? {
@@ -335,52 +455,7 @@ enum ULogPrimitive: String {
     }
 }
 
-struct ULogValueCustom: CustomStringConvertible {
-    let typeName: String
-    let properties: [String : ULogValueProperty]
-
-    init(_ typeName: String, _ properties: [String : ULogValueProperty]) {
-        self.typeName = typeName
-        self.properties = properties
-    }
-
-    var description: String {
-        return typeName
-    }
-
-//    var format: [String] {
-//        return properties.flatMap { name, property in ["\(name): \(property.typeName)"] + indent(property.format) }
-//    }
-//
-//    private func indent(_ list: [String]) -> [String] {
-//        return list.map { "    " + $0 }
-//    }
-}
-
-enum ULogValueProperty {
-    case builtin(ULogValueBuiltin)
-    case custom(ULogValueCustom)
-    case builtins([ULogValueBuiltin], Int)
-    case customs([ULogValueCustom], Int)
-
-//    var typeName: String {
-//        switch self {
-//        case .builtin(let builtin): return builtin.typeName
-//        case .custom(let format): return format.typeName
-//        case .builtins(let builtin, let n): return builtin.typeName + "[\(n)]"
-//        case .customs(let format, let n): return format.typeName + "[\(n)]"
-//        }
-//    }
-//
-//    var format: [String] {
-//        switch self {
-//        case .builtin, .builtins: return []
-//        case .custom(let format), .customs(let format, _): return format.format
-//        }
-//    }
-}
-
-enum ULogValueBuiltin {
+enum ULogValue {
     case uint8(UInt8)
     case uint16(UInt16)
     case uint32(UInt32)
@@ -910,62 +985,3 @@ class ViewController: NSViewController {
 //
 //     time: double_t = 45
 // }
-
-//enum UlogValue: CustomStringConvertible {
-//
-//    case uint8(UInt8)
-//    case int8(Int8)
-//    case uint16(UInt16)
-//    case int16(Int16)
-//    case uint32(UInt32)
-//    case int32(Int32)
-//    case uint64(UInt64)
-//    case int64(Int64)
-//    case float(Float)
-//    case double(Double)
-//    case bool(Bool)
-//    case string(String)
-//    case array([UlogValue])
-//
-//    init?(type: UlogFormatType, value: Data) {
-//        switch type {
-//        case .int8: self = .int8(value.toValueType())
-//        case .uint8: self = .uint8(value.toValueType())
-//        case .int16: self = .int16(value.toValueType())
-//        case .uint16: self = .uint16(value.toValueType())
-//        case .int32: self = .int32(value.toValueType())
-//        case .uint32: self = .uint32(value.toValueType())
-//        case .int64: self = .int64(value.toValueType())
-//        case .uint64: self = .uint64(value.toValueType())
-//        case .float: self = .float(value.toValueType())
-//        case .double: self = .double(value.toValueType())
-//        case .bool: self = .bool(value.toValueType())
-//        case .string: self = .string(value.toString())
-//        case .array(let array):
-//
-//            self = .array( array.enumerated().map { (offset, type) in
-//                return UlogValue(type: type, value: value.advanced(by: offset * type.byteCount))!
-//                }
-//            )
-//        }
-//    }
-//
-//    var description: String {
-//        switch self {
-//        case .int8(let val): return String(val)
-//        case .uint8(let val): return String(val)
-//        case .int16(let val): return String(val)
-//        case .uint16(let val): return String(val)
-//        case .int32(let val): return String(val)
-//        case .uint32(let val): return String(val)
-//        case .int64(let val): return String(val)
-//        case .uint64(let val): return String(val)
-//        case .float(let val): return String(val)
-//        case .double(let val): return String(val)
-//        case .bool(let val): return String(val)
-//        case .string(let val): return val
-//        case .array(let val): return String(describing: val)
-//        }
-//    }
-//}
-
