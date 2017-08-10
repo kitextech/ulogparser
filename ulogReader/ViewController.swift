@@ -56,15 +56,6 @@ class ULogFormatParser: CustomStringConvertible {
         return format.property(at: Array(pathComponents.dropFirst()))
     }
 
-    func size(at path: String) -> UInt? {
-        let pathComponents = path.components(separatedBy: ".")
-        guard let typeName = pathComponents.first, let format = formats.first(where: { $0.typeName == typeName }) else {
-            return nil
-        }
-
-        return format.size(at: Array(pathComponents.dropFirst()))
-    }
-
     func byteOffset(to path: String) -> UInt? {
         let pathComponents = path.components(separatedBy: ".")
         guard let typeName = pathComponents.first, let format = formats.first(where: { $0.typeName == typeName }) else {
@@ -119,13 +110,6 @@ struct ULogFormat: CustomStringConvertible {
         return ULogFormat(typeName, properties.map { ($0, $1.expanded(with: customType)) })
     }
 
-    // specifies index,        index ok,     _                       is array     - OK   - return dearrayed type
-    // does not specify index, _             -                       is not array - OK   - return self
-    // does not specify index, _             path ends here,         is array     - OK   - return self
-    // does not specify index, _             path does not end here, is array     - FAIL - return nil
-    // specifies index,        index not ok, _                       is array     - FAIL - return nil
-    // specifies index,        _             _                       is not array - FAIL - return nil
-
     func property(at path: [String]) -> ULogProperty? {
         let nameAndIndex = nameAndNumber(path[0])
 
@@ -144,29 +128,6 @@ struct ULogFormat: CustomStringConvertible {
         }
 
         return propertyToRecurse?.property(at: Array(path.dropFirst()))
-    }
-
-    func size(at path: [String]) -> UInt? {
-        let nameAndIndex = nameAndNumber(path[0])
-
-        guard let property = properties.first(where: { $0.0 == nameAndIndex.name })?.1 else {
-            return nil
-        }
-
-        return properties.reduce(0) { $0 + $1.1.byteCount }
-
-
-        let propertyToRecurse: ULogProperty?
-
-        switch (nameAndIndex.number, path.count, property) {
-        case let (i?, _, .builtins(type, n)) where i < n: propertyToRecurse = .builtin(type)
-        case let (i?, _, .customs(type, n)) where i < n: propertyToRecurse = .custom(type)
-        case (nil, _, .builtin), (nil, _, .custom): propertyToRecurse = property
-        case (nil, 1, .builtins), (nil, 1, .customs): propertyToRecurse = property
-        default: propertyToRecurse = nil
-        }
-
-        return propertyToRecurse?.size(at: Array(path.dropFirst()))
     }
 
     func byteOffset(to path: [String]) -> UInt? {
@@ -210,116 +171,6 @@ struct ULogFormat: CustomStringConvertible {
 
     var format: [String] {
         return properties.flatMap { name, property in ["\(name): \(property.typeName)"] + indent(property.format) }
-    }
-
-    static func test() {
-        let parser = ULogFormatParser()
-
-        let vas = ULogFormat("vehicle_attitude_t:uint64_t timestamp;float rollspeed;float pitchspeed;my_special_t[4] special;super_special_t super;float yawspeed;float[4] q;uint8_t[4] _padding0;")
-        let mss = ULogFormat("my_special_t:float yaw;float roll;super_special_t super;")
-        let sss = ULogFormat("super_special_t:float x;float y;")
-
-        parser.add(vas)
-        parser.add(mss)
-        parser.add(sss)
-
-        func off(path: String) {
-            print("\(path)")
-
-            if let offset = parser.byteOffset(to: path) {
-                print("    Offset >\(offset)")
-            }
-            else {
-                print("    >Not found")
-            }
-
-//            if let prop = parser.property(at: path) {
-//                print("    Info   >\(prop)")
-//            }
-//            else {
-//                print("    >Not found")
-//            }
-        }
-
-        print(parser)
-
-
-        // Case 1: specifies index,        index ok,     _                       is array     - OK   - return dearrayed type
-
-        // Case 2: does not specify index, _             -                       is not array - OK   - return self
-
-        // Case 3: does not specify index, _             path ends here,         is array     - OK   - return self
-
-        // Case 4: does not specify index, _             path does not end here, is array     - FAIL - return nil
-
-        // Case 5: specifies index,        index not ok, _                       is array     - FAIL - return nil
-
-        // Case 6: specifies index,        _             _                       is not array - FAIL - return nil
-
-
-        print()
-        print("Case 1: specifies index,        index ok,     _                       is array ")
-        off(path: "vehicle_attitude_t.q[3]")
-        off(path: "vehicle_attitude_t.special[2]")
-        off(path: "vehicle_attitude_t.special[2].yaw")
-        off(path: "vehicle_attitude_t.special[2].roll")
-
-        print()
-        print("Case 2: does not specify index, _             -                       is not array ")
-        off(path: "my_special_t.super.x")
-        off(path: "my_special_t.yaw")
-        off(path: "my_special_t.super")
-
-        print()
-        print("Case 3: does not specify index, _             path ends here,         is array ")
-        off(path: "vehicle_attitude_t.special")
-        off(path: "vehicle_attitude_t.q")
-
-        print()
-        print("Case 4: does not specify index, _             path does not end here ")
-        off(path: "vehicle_attitude_t.special.super.x")
-        off(path: "vehicle_attitude_t.q.wrong")
-
-        print()
-        print("Case 5: specifies index,        index not ok, _                       is array ")
-        off(path: "vehicle_attitude_t.q[4]")
-        off(path: "vehicle_attitude_t.special[8]")
-        off(path: "vehicle_attitude_t.special[8].yaw")
-
-        print()
-        print("Case 6: specifies index,        _             _                       is not array ")
-        off(path: "my_special_t.yaw[1]")
-        off(path: "my_special_t.yaw[1].x")
-        off(path: "my_special_t.super[1]")
-        off(path: "my_special_t.super[1].x")
-
-
-//        off(path: "vehicle_attitude_t.special[2]")
-//        off(path: "vehicle_attitude_t.special[2]")
-//        off(path: "vehicle_attitude_t.special[2]")
-//        off(path: "vehicle_attitude_t.special[2]")
-//
-//        off(path: "vehicle_attitude_t.special")
-//        off(path: "vehicle_attitude_t.special[2]")
-//        off(path: "vehicle_attitude_t.special[2].yaw")
-//        off(path: "vehicle_attitude_t.special[2].super")
-//        off(path: "vehicle_attitude_t.special[2].super.x")
-//        off(path: "vehicle_attitude_t.special[3].super.x")
-//        off(path: "vehicle_attitude_t.special[5]")
-//        off(path: "vehicle_attitude_t.special[5].super.x")
-//        off(path: "vehicle_attitude_t.special.super.x")
-//
-//        off(path: "vehicle_attitude_t.q")
-//        off(path: "vehicle_attitude_t.q[0]")
-//        off(path: "vehicle_attitude_t.q[1]")
-//        off(path: "vehicle_attitude_t.q[2]")
-//        off(path: "vehicle_attitude_t.q[3]")
-//        off(path: "vehicle_attitude_t.q[4]")
-//
-//        off(path: "my_special_t.yaw")
-//        off(path: "my_special_t.super")
-//        off(path: "my_special_t.super.x")
-//        off(path: "my_special_t.super.y")
     }
 }
 
@@ -370,10 +221,6 @@ enum ULogProperty {
         case (_, .customs(let format, _)), (_, .custom(let format)): return format.property(at: path)
         default: return nil
         }
-    }
-
-    func size(at path: [String]) -> UInt? {
-        fatalError()
     }
 
     func byteOffset(to path: [String]) -> UInt? {
@@ -930,8 +777,125 @@ class ViewController: NSViewController {
 
 //        print(variableArray)
 
-        ULogFormat.test()
+        test()
     }
+
+    func test() {
+        let parser = ULogFormatParser()
+
+        let vas = ULogFormat("vehicle_attitude_t:uint64_t timestamp;float rollspeed;float pitchspeed;my_special_t[4] special;super_special_t super;float yawspeed;float[4] q;uint8_t[4] _padding0;")
+        let mss = ULogFormat("my_special_t:float yaw;float roll;super_special_t super;")
+        let sss = ULogFormat("super_special_t:float x;float y;")
+
+        parser.add(vas)
+        parser.add(mss)
+        parser.add(sss)
+
+        func off(path: String) {
+            print("\(path)")
+
+            if let offset = parser.byteOffset(to: path) {
+                print("    Offset > \(offset)")
+            }
+            else {
+                print("    Offset > Not found")
+            }
+
+            if let byteCount = parser.property(at: path)?.byteCount {
+                print("    Size   > \(byteCount)")
+            }
+            else {
+                print("    Size   > Not found")
+            }
+
+//            if let prop = parser.property(at: path) {
+//                print("    Info   > \(prop)")
+//            }
+//            else {
+//                print("    Info   > Not found")
+//            }
+        }
+
+        print(parser)
+
+        // Case 1: specifies index,        index ok,     _                       is array     - OK   - return dearrayed type
+
+        // Case 2: does not specify index, _             -                       is not array - OK   - return self
+
+        // Case 3: does not specify index, _             path ends here,         is array     - OK   - return self
+
+        // Case 4: does not specify index, _             path does not end here, is array     - FAIL - return nil
+
+        // Case 5: specifies index,        index not ok, _                       is array     - FAIL - return nil
+
+        // Case 6: specifies index,        _             _                       is not array - FAIL - return nil
+
+
+        print()
+        print("Case 1: specifies index,        index ok,     _                       is array ")
+        off(path: "vehicle_attitude_t.q[3]")
+        off(path: "vehicle_attitude_t.special[2]")
+        off(path: "vehicle_attitude_t.special[2].yaw")
+        off(path: "vehicle_attitude_t.special[2].roll")
+
+        print()
+        print("Case 2: does not specify index, _             -                       is not array ")
+        off(path: "my_special_t.super.x")
+        off(path: "my_special_t.yaw")
+        off(path: "my_special_t.super")
+
+        print()
+        print("Case 3: does not specify index, _             path ends here,         is array ")
+        off(path: "vehicle_attitude_t.special")
+        off(path: "vehicle_attitude_t.q")
+
+        print()
+        print("Case 4: does not specify index, _             path does not end here ")
+        off(path: "vehicle_attitude_t.special.super.x")
+        off(path: "vehicle_attitude_t.q.wrong")
+
+        print()
+        print("Case 5: specifies index,        index not ok, _                       is array ")
+        off(path: "vehicle_attitude_t.q[4]")
+        off(path: "vehicle_attitude_t.special[8]")
+        off(path: "vehicle_attitude_t.special[8].yaw")
+
+        print()
+        print("Case 6: specifies index,        _             _                       is not array ")
+        off(path: "my_special_t.yaw[1]")
+        off(path: "my_special_t.yaw[1].x")
+        off(path: "my_special_t.super[1]")
+        off(path: "my_special_t.super[1].x")
+
+
+        //        off(path: "vehicle_attitude_t.special[2]")
+        //        off(path: "vehicle_attitude_t.special[2]")
+        //        off(path: "vehicle_attitude_t.special[2]")
+        //        off(path: "vehicle_attitude_t.special[2]")
+        //
+        //        off(path: "vehicle_attitude_t.special")
+        //        off(path: "vehicle_attitude_t.special[2]")
+        //        off(path: "vehicle_attitude_t.special[2].yaw")
+        //        off(path: "vehicle_attitude_t.special[2].super")
+        //        off(path: "vehicle_attitude_t.special[2].super.x")
+        //        off(path: "vehicle_attitude_t.special[3].super.x")
+        //        off(path: "vehicle_attitude_t.special[5]")
+        //        off(path: "vehicle_attitude_t.special[5].super.x")
+        //        off(path: "vehicle_attitude_t.special.super.x")
+        //
+        //        off(path: "vehicle_attitude_t.q")
+        //        off(path: "vehicle_attitude_t.q[0]")
+        //        off(path: "vehicle_attitude_t.q[1]")
+        //        off(path: "vehicle_attitude_t.q[2]")
+        //        off(path: "vehicle_attitude_t.q[3]")
+        //        off(path: "vehicle_attitude_t.q[4]")
+        //
+        //        off(path: "my_special_t.yaw")
+        //        off(path: "my_special_t.super")
+        //        off(path: "my_special_t.super.x")
+        //        off(path: "my_special_t.super.y")
+    }
+
 }
 
 
