@@ -78,23 +78,23 @@ class ViewController: NSViewController {
         }
 
         time("q0 fancy style") {
-            let qq0 = parser.read("vehicle_attitude") { $0.at("q[0]") as Float }
+            let qq0 = parser.read("vehicle_attitude") { $0.value("q[0]") as Float }
             qq0[0..<10].forEach { print($0) }
         }
 
         time("q fancy style A") {
-            let qqA = parser.read("vehicle_attitude") { value in
-                Quaternion(x: value.at("q[0]"), y: value.at("q[1]"), z: value.at("q[2]"), w: value.at("q[3]"))
+            let qqA = parser.read("vehicle_attitude") { read in
+                Quaternion(x: read.value("q[1]"), y: read.value("q[2]"), z: read.value("q[3]"), w: read.value("q[0]"))
             }
             qqA[0..<10].forEach { print($0) }
         }
 
         time("q fancy style B") {
-            let qq = parser.read("vehicle_attitude") { value -> Quaternion in
-                let qs: [Float] = value.values("q")
-                return Quaternion(x: qs[0], y: qs[1], z: qs[2], w: qs[3])
+            let qq = parser.read("vehicle_attitude", range: 0..<10) { read -> Quaternion in
+                let qs: [Float] = read.values("q")
+                return Quaternion(x: qs[1], y: qs[2], z: qs[3], w: read.index % 2 == 0 ? qs[0] : -1)
             }
-            qq[0..<10].forEach { print($0) }
+            qq.forEach { print($0) }
         }
     }
 

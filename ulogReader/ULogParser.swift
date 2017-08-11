@@ -31,15 +31,16 @@ class ULogParser: CustomStringConvertible {
 
     // MARK: - Reading API -
 
-    public func read<S>(_ typeName: String, closure: (ULogReader) -> S) -> [S] {
+    public func read<S>(_ typeName: String, range: CountableRange<Int>? = nil, closure: (ULogReader) -> S) -> [S] {
         guard let messages = dataMessages[typeName] else {
             return []
         }
 
         let reader = ULogReader(parser: self, typeName: typeName, messages: messages)
 
+
         var result: [S] = []
-        for i in 0..<messages.count {
+        for i in range ?? 0..<messages.count {
             reader.index = i
             result.append(closure(reader))
         }
@@ -176,9 +177,6 @@ class ULogParser: CustomStringConvertible {
         }
         
         print("Complete: \(Date().timeIntervalSince(startTime))")
-        
-        //        print(description)
-        
     }
 
     // MARK: - Helper methods
@@ -227,7 +225,8 @@ class ULogParser: CustomStringConvertible {
 }
 
 class ULogReader {
-    public var index = 0
+
+    // MARK: - Private variables -
 
     private let parser: ULogParser
     private let typeName: String
@@ -236,42 +235,43 @@ class ULogReader {
     private var cachedOffsets: [String : Int] = [:]
     private var cachedProperties: [String : ULogProperty] = [:]
 
+    // MARK: - Initialiser -
+
     init(parser: ULogParser, typeName: String, messages: [MessageData]) {
         self.parser = parser
         self.typeName = typeName
         self.messages = messages
     }
 
-    func at<T>(_ path: String) -> T {
-        cachedOffsets[path] = cachedOffsets[path] ?? parser.byteOffset(of: typeName, at: path).flatMap(Int.init)
-        cachedProperties[path] = cachedProperties[path] ?? parser.property(of: typeName, at: path)
+    // MARK: - Reading API -
 
-        guard let offsetInMessage = cachedOffsets[path], let prop = cachedProperties[path], prop.isBuiltin, !prop.isArray else {
+    public var index = 0
+
+    public func value<T>(_ path: String) -> T {
+        cache(path)
+
+        guard let offsetInMessage = cachedOffsets[path], case .builtin? = cachedProperties[path] else {
             fatalError()
         }
 
         return messages[index].data.advanced(by: offsetInMessage).value()
     }
 
-    func values<T>(_ path: String) -> [T] {
-        //        func read<T>(_ typeName: String, primitiveArray path: String) -> [[T]] {
-        //            guard let offsetInMessage = byteOffset(of: typeName, at: path), let prop = property(of: typeName, at: path), case let .builtins(prim, n) = prop else {
-        //                return []
-        //            }
-        //
-        //            return dataMessages[typeName]?.map { dataMessage in
-        //                return (0..<n).map { i in dataMessage.data.advanced(by: Int(offsetInMessage + i*prim.byteCount)).value() }
-        //                } ?? []
-        //        }
+    public func values<T>(_ path: String) -> [T] {
+        cache(path)
 
-        cachedOffsets[path] = cachedOffsets[path] ?? parser.byteOffset(of: typeName, at: path).flatMap(Int.init)
-        cachedProperties[path] = cachedProperties[path] ?? parser.property(of: typeName, at: path)
-
-        guard let offsetInMessage = cachedOffsets[path], let prop = cachedProperties[path], prop.isBuiltin, prop.isArray else {
+        guard let offsetInMessage = cachedOffsets[path], case let .builtins(prim, n)? = cachedProperties[path] else {
             fatalError()
         }
-        
-        return messages[index].data.advanced(by: offsetInMessage).value()
+
+        return (0..<n).map { i in messages[index].data.advanced(by: offsetInMessage + Int(i*prim.byteCount)).value() as T }
+    }
+
+    // MARK: - Helper methods -
+
+    private func cache(_ path: String) {
+        cachedOffsets[path] = cachedOffsets[path] ?? parser.byteOffset(of: typeName, at: path).flatMap(Int.init)
+        cachedProperties[path] = cachedProperties[path] ?? parser.property(of: typeName, at: path)
     }
 }
 
@@ -294,5 +294,3 @@ extension Data {
         return withUnsafeBytes { $0.pointee }
     }
 }
-
-

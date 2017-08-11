@@ -1,0 +1,27 @@
+vehicle_attitude_t
+    timestamp: uint64_t            - 8  - 0
+    rollspeed: float               - 4  - 8
+    pitchspeed: float              - 4  - 12
+    special: my_special_t[4]       - 64 - 16 + i*16 + 0
+        yaw: float                 - 4  - 16 + i*16 + 0
+        roll: float                - 4  - 16 + i*16 + 4
+        super_special_t            - 8  - 16 + i*16 + 8
+            x: float               - 4  - 16 + i*16 + 8 
+            y: float               - 4  - 16 + i*16 + 12
+    super: super_special_t         - 8  - 80
+        x: float                   - 4  - 80
+        y: float                   - 4  - 84
+    yawspeed: float                - 4  - 88
+    q: float[4]                    - 4  - 92 + i*4
+    _padding0: uint8_t[4]          - 4  - 108 + i*1
+
+my_special_t                       - 16 - 0
+    yaw: float                     - 4  - 0
+    roll: float                    - 4  - 4
+    super_special_t                - 8  - 8
+        x: float                   - 4  - 8 
+        y: float                   - 4  - 12
+
+super_special_t                    - 8  - 0
+    x: float                       - 4  - 0
+    y: float                       - 4  - 4
