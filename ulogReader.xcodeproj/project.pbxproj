@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		22F647601F3DA45F00B40D88 /* ULogParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22F6475F1F3DA45F00B40D88 /* ULogParser.swift */; };
+		22F647621F3DA4EF00B40D88 /* ULogFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22F647611F3DA4EF00B40D88 /* ULogFormat.swift */; };
+		22F647641F3DA55500B40D88 /* ULogMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22F647631F3DA55500B40D88 /* ULogMessage.swift */; };
 		9FF695681F2BD5550078085E /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FF695671F2BD5550078085E /* AppDelegate.swift */; };
 		9FF6956A1F2BD5550078085E /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FF695691F2BD5550078085E /* ViewController.swift */; };
 		9FF6956C1F2BD5550078085E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 9FF6956B1F2BD5550078085E /* Assets.xcassets */; };
@@ -14,6 +17,9 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		22F6475F1F3DA45F00B40D88 /* ULogParser.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ULogParser.swift; sourceTree = "<group>"; };
+		22F647611F3DA4EF00B40D88 /* ULogFormat.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ULogFormat.swift; sourceTree = "<group>"; };
+		22F647631F3DA55500B40D88 /* ULogMessage.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ULogMessage.swift; sourceTree = "<group>"; };
 		9FF695641F2BD5550078085E /* ulogReader.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ulogReader.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9FF695671F2BD5550078085E /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		9FF695691F2BD5550078085E /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
@@ -53,6 +59,9 @@
 			isa = PBXGroup;
 			children = (
 				9FF695671F2BD5550078085E /* AppDelegate.swift */,
+				22F647631F3DA55500B40D88 /* ULogMessage.swift */,
+				22F6475F1F3DA45F00B40D88 /* ULogParser.swift */,
+				22F647611F3DA4EF00B40D88 /* ULogFormat.swift */,
 				9FF695691F2BD5550078085E /* ViewController.swift */,
 				9FF6956B1F2BD5550078085E /* Assets.xcassets */,
 				9FF6956D1F2BD5550078085E /* Main.storyboard */,
@@ -135,6 +144,9 @@
 			files = (
 				9FF6956A1F2BD5550078085E /* ViewController.swift in Sources */,
 				9FF695681F2BD5550078085E /* AppDelegate.swift in Sources */,
+				22F647601F3DA45F00B40D88 /* ULogParser.swift in Sources */,
+				22F647621F3DA4EF00B40D88 /* ULogFormat.swift in Sources */,
+				22F647641F3DA55500B40D88 /* ULogMessage.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -291,6 +303,7 @@
 				9FF695751F2BD5550078085E /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 	};
