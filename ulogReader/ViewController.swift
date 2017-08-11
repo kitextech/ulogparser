@@ -625,7 +625,7 @@ struct Format {
 class ULogParser: CustomStringConvertible {
     private let data: Data
 
-    private var formats: [String : ULogFormat] = [:]
+    public var formats: [String : ULogFormat] = [:]
     private var dataMessages: [String : [MessageData]] = [:]
     private var messageNames: [UInt16 : String] = [:]
 
@@ -723,13 +723,6 @@ class ULogParser: CustomStringConvertible {
 
         print("Complete: \(Date().timeIntervalSince(startTime))")
 
-        print(dataMessages["vehicle_attitude"]?.count ?? -1)
-        print(formats["vehicle_attitude"]?.description ?? "--")
-
-        let q0 = extractPrimitives("vehicle_attitude:q") as [[Float]]
-        print(q0[0..<10])
-
-
 //        print(description)
 
     }
@@ -740,51 +733,93 @@ class ULogParser: CustomStringConvertible {
         formats[format.typeName] = expanded
     }
 
-    func extract<T>(_ keyPath: String, closure: () -> T ) -> [T]? {
+    private var readHead = 0
 
+    private var currentMessages: [MessageData] = []
+    private var currentTypeName: String = ""
 
-        fatalError()
-    }
+    private var cachedOffsets: [String : Int] = [:]
+    private var cachedProperties: [String : ULogProperty] = [:]
 
-    func extractPrimitives<T>(_ keyPath: String) -> [[T]] {
-        guard let offsetInMessage = byteOffset(to: keyPath), let prop = property(at: keyPath), case let .builtins(prim, n) = prop else {
+    // MARK: - Reader API
+
+//    func value<T>(_ path: String) -> T {
+//        cachedOffsets[path] = cachedOffsets[path] ?? byteOffset(of: currentTypeName, at: path).flatMap(Int.init)
+//        cachedProperties[path] = cachedProperties[path] ?? property(of: currentTypeName, at: path)
+//
+//        guard let offsetInMessage = cachedOffsets[path], let prop = cachedProperties[path], prop.isBuiltin, !prop.isArray else {
+//            fatalError()
+//        }
+//
+//        return currentMessages[readHead].data.advanced(by: offsetInMessage).value()
+//    }
+//
+//    func values<T>(_ path: String) -> [T] {
+//        guard let offsetInMessage = byteOffset(of: currentTypeName, at: path), let prop = property(of: currentTypeName, at: path), prop.isBuiltin, !prop.isArray else {
+//            fatalError()
+//        }
+//
+//        return currentMessages[readHead].data.advanced(by: Int(offsetInMessage)).value()
+//    }
+
+    // MARK: - Parser API
+
+    func read<S>(_ typeName: String, closure: (ULogReader) -> S) -> [S] {
+        currentTypeName = typeName
+
+        guard let messages = dataMessages[typeName] else {
             return []
         }
 
-        return dataMessages[keyPath.typeName]?.map { dataMessage in
+        let reader = ULogReader(parser: self, typeName: typeName, messages: messages)
+
+        var result: [S] = []
+        for i in 0..<messages.count {
+            reader.index = i
+            result.append(closure(reader))
+        }
+
+        return result
+
+//        currentMessages = messages
+//        cachedOffsets = [:]
+//        cachedProperties = [:]
+//
+//        var result: [S] = []
+//        for i in 0..<currentMessages.count {
+//            readHead = i
+//            result.append(closure(self))
+//        }
+//
+//        return result
+    }
+
+    func read<T>(_ typeName: String, primitive path: String) -> [T] {
+        guard let offsetInMessage = byteOffset(of: typeName, at: path), let prop = property(of: typeName, at: path), prop.isBuiltin, !prop.isArray else {
+            return []
+        }
+
+        return dataMessages[typeName]?.map { $0.data.advanced(by: Int(offsetInMessage)).value() } ?? []
+    }
+
+    func read<T>(_ typeName: String, primitiveArray path: String) -> [[T]] {
+        guard let offsetInMessage = byteOffset(of: typeName, at: path), let prop = property(of: typeName, at: path), case let .builtins(prim, n) = prop else {
+            return []
+        }
+
+        return dataMessages[typeName]?.map { dataMessage in
             return (0..<n).map { i in dataMessage.data.advanced(by: Int(offsetInMessage + i*prim.byteCount)).value() }
         } ?? []
     }
 
-    func extractPrimitive<T>(_ keyPath: String) -> [T] {
-        guard let offsetInMessage = byteOffset(to: keyPath), let prop = property(at: keyPath), prop.isBuiltin, !prop.isArray else {
-            return []
-        }
+    // MARK: - Information on properties
 
-        return dataMessages[keyPath.typeName]?.map { $0.data.advanced(by: Int(offsetInMessage)).value() } ?? []
+    func property(of typeName: String, at path: String) -> ULogProperty? {
+        return formats[typeName]?.property(at: path.components(separatedBy: "."))
     }
 
-    func extract<T>(_ typeName: String, keyPath: String) -> [T]? {
-
-//        guard let offsetsToMessages = messageOffsets[typeName],
-//            let offsetInMessage = byteOffset(in: typeName, to: keyPath),
-//            let prop = property(in: typeName, at: keyPath),
-//            prop.isBuiltin else {
-//                return nil
-//        }
-//
-//        return offsetsToMessages
-//            .map { Range(uncheckedBounds: (Int($0 + offsetInMessage), Int($0 + offsetInMessage + prop.byteCount))) }
-//            .map { data.subdata(in: $0).value() as T }
-        fatalError()
-    }
-
-    func property(at keyPath: String) -> ULogProperty? {
-        return formats[keyPath.typeName]?.property(at: keyPath.path)
-    }
-
-    func byteOffset(to keyPath: String) -> UInt? {
-        return formats[keyPath.typeName]?.byteOffset(to: keyPath.path)
+    func byteOffset(of typeName: String, at path: String) -> UInt? {
+        return formats[typeName]?.byteOffset(to: path.components(separatedBy: "."))
     }
 
     // MARK: - Helper methods
@@ -820,20 +855,49 @@ class ULogParser: CustomStringConvertible {
     }
 }
 
-private extension String {
-    var typeName: String {
-        return components(separatedBy: ":").first!
+class ULogReader {
+    public var index = 0
+
+    private let parser: ULogParser
+    private let typeName: String
+    private let messages: [MessageData]
+
+    private var cachedOffsets: [String : Int] = [:]
+    private var cachedProperties: [String : ULogProperty] = [:]
+
+    init(parser: ULogParser, typeName: String, messages: [MessageData]) {
+        self.parser = parser
+        self.typeName = typeName
+        self.messages = messages
     }
 
-    var path: [String] {
-        return components(separatedBy: ":")[1].components(separatedBy: ".")
+    func at<T>(_ path: String) -> T {
+        cachedOffsets[path] = cachedOffsets[path] ?? parser.byteOffset(of: typeName, at: path).flatMap(Int.init)
+        cachedProperties[path] = cachedProperties[path] ?? parser.property(of: typeName, at: path)
+
+        guard let offsetInMessage = cachedOffsets[path], let prop = cachedProperties[path], prop.isBuiltin, !prop.isArray else {
+            fatalError()
+        }
+
+        return messages[index].data.advanced(by: offsetInMessage).value()
+    }
+
+    func values<T>(_ path: String) -> [T] {
+        cachedOffsets[path] = cachedOffsets[path] ?? parser.byteOffset(of: typeName, at: path).flatMap(Int.init)
+        cachedProperties[path] = cachedProperties[path] ?? parser.property(of: typeName, at: path)
+
+        guard let offsetInMessage = cachedOffsets[path], let prop = cachedProperties[path], prop.isBuiltin, prop.isArray else {
+            fatalError()
+        }
+
+        return messages[index].data.advanced(by: offsetInMessage).value()
     }
 }
 
 class ULog {
-    
+
 //    let data: Data
-    
+
     var infos = [MessageInfo]()
     var messageFormats = [MessageFormat]()
     var formats = [String : Format]()
@@ -977,6 +1041,30 @@ class ULog {
     }
 }
 
+struct Vector {
+    let x: Float
+    let y: Float
+    let z: Float
+}
+
+struct TimedLocation {
+    let time: Double
+    let pos: Vector
+    let vel: Vector
+}
+
+struct Quaternion {
+    let x: Float
+    let y: Float
+    let z: Float
+    let w: Float
+}
+
+struct TimedOrientation {
+    let time: Double
+    let orientation: Quaternion
+}
+
 class ViewController: NSViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -1003,6 +1091,45 @@ class ViewController: NSViewController {
         guard let parser = ULogParser(data) else {
             return
         }
+
+        func time(_ heading: String, closure: () -> ()) {
+            print(heading + " ------------------------------------------")
+            let before = Date()
+            closure()
+            print("That took \(Date().timeIntervalSince(before))")
+        }
+
+        print(parser.formats["vehicle_attitude"]?.description ?? "--")
+
+        time("q0 simple style") {
+            let q0: [Float] = parser.read("vehicle_attitude", primitive: "q[0]")
+            q0[0..<10].forEach { print($0) }
+        }
+
+        time("q simple style") {
+            let q: [[Float]] = parser.read("vehicle_attitude", primitiveArray: "q")
+            q[0..<10].forEach { print($0) }
+        }
+
+        time("q0 fancy style") {
+            let qq0 = parser.read("vehicle_attitude") { value in value.at("q[0]") as Float }
+            qq0[0..<10].forEach { print($0) }
+        }
+
+        time("q fancy style A") {
+            let qqA = parser.read("vehicle_attitude") { value in
+                Quaternion(x: value.at("q[0]"), y: value.at("q[1]"), z: value.at("q[2]"), w: value.at("q[3]"))
+            }
+            qqA[0..<10].forEach { print($0) }
+        }
+
+        time("q fancy style B") {
+            let qq = parser.read("vehicle_attitude") { value -> Quaternion in
+                let qs: [Float] = value.values("q")
+                return Quaternion(x: qs[0], y: qs[1], z: qs[2], w: qs[3])
+            }
+            qq[0..<10].forEach { print($0) }
+        }
     }
 
     func testUlog(data: Data) {
@@ -1018,18 +1145,6 @@ class ViewController: NSViewController {
         print(VLPf)
         print("---------------")
 
-        struct Vector {
-            let x: Float
-            let y: Float
-            let z: Float
-        }
-
-        struct TimedLocation {
-            let time: Double
-            let pos: Vector
-            let vel: Vector
-        }
-
         func toTimedLocation(value: [UlogValue]) -> TimedLocation {
             let time = value[VLPf.lookup["timestamp"]!].getValue() as UInt64
 
@@ -1043,18 +1158,6 @@ class ViewController: NSViewController {
             let vel = Vector(x: vx, y: vy, z: vz)
 
             return TimedLocation(time: Double(time)/1000000, pos: pos, vel: vel)
-        }
-
-        struct Quaternion {
-            let x: Float
-            let y: Float
-            let z: Float
-            let w: Float
-        }
-
-        struct TimedOrientation {
-            let time: Double
-            let orientation: Quaternion
         }
 
         let VAf = ulog.formats["vehicle_attitude"]!
@@ -1106,10 +1209,9 @@ class ViewController: NSViewController {
         parser.add(sss)
 
         func off(type: String, path: String) {
-            let keyPath = "\(type):\(path)"
-            print(keyPath)
+            print("\(type): \(path)")
 
-            if let property = parser.property( at: keyPath) {
+            if let property = parser.property(of: type, at: path) {
                 print("    Size   > \(property.byteCount)")
 //                print("    Prop > \(property)")
             }
@@ -1117,7 +1219,7 @@ class ViewController: NSViewController {
                 print("    Prop   > Not found")
             }
 
-            if let offset = parser.byteOffset(to: keyPath) {
+            if let offset = parser.byteOffset(of: type, at: path) {
                 print("    Offset > \(offset)")
             }
             else {
